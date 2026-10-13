@@ -1,0 +1,20 @@
+# Окружение и секреты
+.env
+*.env
+!.env.example
+
+# Зависимости
+node_modules/
+
+# База данных SQLite
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Логи и кэш
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
