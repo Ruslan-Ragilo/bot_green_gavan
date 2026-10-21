@@ -1,4 +1,5 @@
 import { Bot } from 'grammy';
+import https from 'node:https';
 import { config } from '../config.js';
 import { startComposer } from './handlers/start.js';
 import { catalogComposer } from './handlers/catalog.js';
@@ -8,13 +9,28 @@ import { staffComposer } from './handlers/staff.js';
 import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 
+// Пул постоянных HTTPS-соединений (Keep-Alive): исключает повторные TLS-хэндшейки (~1.2 сек экономии)
+const keepAliveAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 60000,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 30000,
+});
+
 export function createBot() {
-  const botOptions = {};
-  if (config.telegramApiRoot) {
-    botOptions.client = {
-      apiRoot: config.telegramApiRoot,
+  const botOptions = {
+    client: {
       timeoutSeconds: 30,
-    };
+      baseFetchConfig: {
+        agent: keepAliveAgent,
+        compress: true,
+      },
+    },
+  };
+
+  if (config.telegramApiRoot) {
+    botOptions.client.apiRoot = config.telegramApiRoot;
   }
 
   const bot = new Bot(config.botToken, botOptions);
