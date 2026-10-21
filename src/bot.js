@@ -9,19 +9,20 @@ import { staffComposer } from './handlers/staff.js';
 import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 
-// Пул постоянных HTTPS-соединений (Keep-Alive): исключает повторные TLS-хэндшейки (~1.2 сек экономии)
+// Пул постоянных HTTPS-соединений: сокеты живут до 3 сек, предотвращая разрыв со стороны Cloudflare (5 сек)
 const keepAliveAgent = new https.Agent({
   keepAlive: true,
-  keepAliveMsecs: 60000,
-  maxSockets: 50,
-  maxFreeSockets: 10,
-  timeout: 30000,
+  keepAliveMsecs: 1000,
+  maxSockets: 25,
+  maxFreeSockets: 5,
+  timeout: 3000,
 });
 
 export function createBot() {
   const botOptions = {
     client: {
-      timeoutSeconds: 30,
+      timeoutSeconds: 8,
+      canUseWebhookReply: (method) => method === 'answerCallbackQuery',
       baseFetchConfig: {
         agent: keepAliveAgent,
         compress: true,
@@ -43,18 +44,6 @@ export function createBot() {
     }
     const ctx = err.ctx;
     console.error(`[Bot Error] Ошибка при обработке апдейта ${ctx.update.update_id}:`, err.error);
-  });
-
-  // Мгновенный неблокирующий вызов answerCallbackQuery (не задерживает смену экранов)
-  bot.use(async (ctx, next) => {
-    if (ctx.callbackQuery) {
-      const originalAnswer = ctx.answerCallbackQuery.bind(ctx);
-      ctx.answerCallbackQuery = (...args) => {
-        originalAnswer(...args).catch(() => {});
-        return Promise.resolve(true);
-      };
-    }
-    return next();
   });
 
   // Замер времени сетевых вызовов к Telegram API через Cloudflare

@@ -53,7 +53,10 @@ async function main() {
     // === РЕЖИМ WEBHOOK (мгновенная доставка апдейтов без задержек polling) ===
     console.log(`🌐 Режим Webhook активен: ${config.webhookUrl}`);
 
-    const webhookHandler = webhookCallback(bot, 'http');
+    const webhookHandler = webhookCallback(bot, 'http', {
+      onTimeout: 'return',
+      timeoutMilliseconds: 8000,
+    });
 
     server = http.createServer((req, res) => {
       // Все входящие POST-запросы отправляются в grammY обработчик
