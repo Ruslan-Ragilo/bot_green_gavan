@@ -53,12 +53,30 @@ export function createBot() {
     return next();
   });
 
-  // Логирование входящих событий
+  // Замер времени сетевых вызовов к Telegram API через Cloudflare
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    const apiStart = performance.now();
+    const res = await prev(method, payload, signal);
+    const apiDuration = (performance.now() - apiStart).toFixed(0);
+    if (method !== 'getUpdates') {
+      console.log(`📡 [API ${method}] Ответ за ${apiDuration} мс`);
+    }
+    return res;
+  });
+
+  // Логирование входящих событий и точного времени выполнения в миллисекундах
   bot.use(async (ctx, next) => {
+    const start = performance.now();
     const from = ctx.from ? `${ctx.from.first_name} (id: ${ctx.from.id})` : 'unknown';
     const action = ctx.message?.text || ctx.callbackQuery?.data || 'other update';
     console.log(`📥 [Update ${ctx.update.update_id}] От ${from}: ${action}`);
-    return next();
+
+    try {
+      await next();
+    } finally {
+      const duration = (performance.now() - start).toFixed(0);
+      console.log(`⏱️ [Update ${ctx.update.update_id}] Обработан за ${duration} мс (${action})`);
+    }
   });
 
   // Подключаем модули обработчиков
