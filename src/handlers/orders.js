@@ -1,6 +1,7 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { getUserOrders, getOrderById, cancelOrderByClient } from '../db/repositories/orders.js';
 import { clientOrderKeyboard } from '../keyboards/client.js';
+import { escapeMarkdown } from '../utils/text.js';
 
 export const ordersComposer = new Composer();
 
@@ -122,11 +123,28 @@ ordersComposer.callbackQuery(/^order:client_view:(\d+)$/, async (ctx) => {
 
 // Жилец подтвердил согласие на ожидание при задержке на кухне
 ordersComposer.callbackQuery(/^order:delay_ack:(\d+)$/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  const order = getOrderById(orderId);
   await ctx.answerCallbackQuery({ text: 'Спасибо за понимание! Сообщим, как только блюда будут готовы.' });
+
   try {
     await ctx.editMessageReplyMarkup({ reply_markup: undefined });
-  } catch (err) {
-    // разметка могла уже быть обновлена
+  } catch (_) {}
+
+  // Оповещаем кухню в группе, что клиент подтвердил задержку
+  if (order?.group_chat_id) {
+    try {
+      await ctx.api.sendMessage(
+        order.group_chat_id,
+        `👌 *Клиент подтвердил ожидание* по заказу ${order.order_code}! Заказ в работе.`,
+        {
+          parse_mode: 'Markdown',
+          reply_parameters: order.group_message_id ? { message_id: order.group_message_id } : undefined,
+        }
+      );
+    } catch (err) {
+      console.error(`[Error] Не удалось отправить подтверждение ожидания в группу:`, err);
+    }
   }
 });
 
@@ -139,31 +157,50 @@ ordersComposer.callbackQuery(/^order:client_cancel:(\d+)$/, async (ctx) => {
     return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
   }
 
-  // Атомарно пытаемся перевести заказ из 'sent' в 'cancelled'
+  // Атомарно пытаемся перевести заказ из 'sent' или 'accepted' в 'cancelled'
   const isCancelled = cancelOrderByClient(orderId, ctx.from.id);
 
   if (!isCancelled) {
     return ctx.answerCallbackQuery({
-      text: 'Невозможно отменить: заведение уже приняло заказ в работу!',
+      text: 'Невозможно отменить: заказ уже выдан или отменён!',
       show_alert: true,
     });
   }
 
   await ctx.answerCallbackQuery({ text: `Заказ ${order.order_code} отменён` });
 
-  // Если в группе заведения есть сообщение с заказом, обновляем его
+  // 1. Обновляем карточку заказа в группе (убираем кнопки, меняем статус)
   if (order.group_chat_id && order.group_message_id) {
     try {
       await ctx.api.editMessageText(
         order.group_chat_id,
         order.group_message_id,
         `❌ *ЗАКАЗ ${order.order_code} ОТМЕНЁН КЛИЕНТОМ*\n\n` +
-        `👤 Клиент: ${order.first_name || 'Жилец'}\n` +
-        `Сумма: ${order.total_price} ₽`,
+        `👤 Клиент: ${escapeMarkdown(order.first_name || 'Жилец')}\n` +
+        `Сумма: ${order.total_price} ₽\n` +
+        `Статус: ❌ *Отменён жильцом (долго ждать)*`,
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
-      console.error(`[Error] Не удалось обновить отмену заказа ${order.order_code} в группе:`, err);
+      console.error(`[Error] Не удалось обновить карточку заказа ${order.order_code} в группе:`, err);
+    }
+  }
+
+  // 2. Отправляем звуковое отдельное сообщение в группу, чтобы кухня ТОЧНО увидела отмену!
+  if (order.group_chat_id) {
+    try {
+      await ctx.api.sendMessage(
+        order.group_chat_id,
+        `🚫 *ВНИМАНИЕ КУХНЯ: ОТМЕНА ЗАКАЗА ${order.order_code}!*\n\n` +
+        `Клиент ${escapeMarkdown(order.first_name || 'Жилец')} отказался от ожидания и отменил заказ.\n` +
+        `Готовить НЕ нужно! 🛑`,
+        {
+          parse_mode: 'Markdown',
+          reply_parameters: order.group_message_id ? { message_id: order.group_message_id } : undefined,
+        }
+      );
+    } catch (err) {
+      console.error(`[Error] Не удалось отправить оповещение об отмене в группу:`, err);
     }
   }
 
