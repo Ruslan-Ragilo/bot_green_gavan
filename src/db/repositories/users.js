@@ -40,3 +40,16 @@ export function deleteUserData(telegramId) {
 
   return transaction(telegramId);
 }
+
+// Получение общего количества зарегистрированных пользователей
+export function getTotalUsersCount() {
+  const stmt = db.prepare('SELECT count(*) as count FROM users');
+  return stmt.get().count;
+}
+
+// Получение списка всех Telegram ID для рассылки
+export function getAllUserIds() {
+  const stmt = db.prepare('SELECT telegram_id FROM users WHERE telegram_id > 0');
+  return stmt.all().map(r => r.telegram_id);
+}
+

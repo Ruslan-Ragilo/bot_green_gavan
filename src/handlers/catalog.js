@@ -1,11 +1,11 @@
-import { Composer } from 'grammy';
+import { Composer, InlineKeyboard } from 'grammy';
 import { getActivePlaces, getPlaceById, getPlaceItems, getItemById } from '../db/repositories/places.js';
 import { addToCart, getCart } from '../db/repositories/cart.js';
 import { placesKeyboard, placeMenuKeyboard, itemDetailKeyboard } from '../keyboards/client.js';
 
 export const catalogComposer = new Composer();
 
-// Просмотр списка заведений ЖК
+// Просмотр заведений / сразу меню (если заведение одно)
 catalogComposer.callbackQuery('catalog:places', async (ctx) => {
   await ctx.answerCallbackQuery();
   const places = getActivePlaces();
@@ -13,11 +13,32 @@ catalogComposer.callbackQuery('catalog:places', async (ctx) => {
   if (places.length === 0) {
     return ctx.editMessageText('К сожалению, сейчас нет доступных заведений для заказа.', {
       parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard().text('◀️ В главное меню', 'menu:main'),
+    });
+  }
+
+  // Если активно только одно заведение (например, пиццерия), сразу открываем его меню
+  if (places.length === 1) {
+    const place = places[0];
+    const items = getPlaceItems(place.id, { onlyAvailable: true });
+    const cart = getCart(ctx.from.id);
+    const cartTotalQty = (cart.place && cart.place.id === place.id) ? cart.totalQuantity : 0;
+
+    const text = (
+      `🏪 *${place.name}*\n` +
+      (place.description ? `_${place.description}_\n\n` : '\n') +
+      `📍 *Точка самовывоза:* ${place.pickup_point}\n\n` +
+      `Выберите позиции из меню:`
+    );
+
+    return ctx.editMessageText(text, {
+      parse_mode: 'Markdown',
+      reply_markup: placeMenuKeyboard(place.id, items, cartTotalQty),
     });
   }
 
   const text = (
-    `🍽 *Заведения ЖК «Зелёная Гавань»*\n\n` +
+    `🍽 *Заведения Зелёной Гавани*\n\n` +
     `Выберите заведение, чтобы посмотреть меню и оформить предзаказ на самовывоз:`
   );
 

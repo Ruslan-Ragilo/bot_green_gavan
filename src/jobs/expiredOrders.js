@@ -60,9 +60,6 @@ export async function checkExpiredOrders(bot) {
   }
 }
 
-/**
- * Запуск периодической проверки просроченных заказов
- */
 export function startExpiredOrdersJob(bot) {
   if (intervalId) return;
 

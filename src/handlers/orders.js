@@ -14,6 +14,39 @@ export const STATUS_LABELS = {
   expired: '⚪ Просрочен',
 };
 
+// Обработка команды /orders из меню быстрого доступа
+ordersComposer.command('orders', async (ctx) => {
+  const orders = getUserOrders(ctx.from.id, 10);
+
+  if (orders.length === 0) {
+    const emptyKeyboard = new InlineKeyboard()
+      .text('🍽 Выбрать заведение', 'catalog:places').row()
+      .text('◀️ В главное меню', 'menu:main');
+
+    return ctx.reply('📋 *У вас пока нет заказов.*\n\nВыберите заведение и оформите первый заказ!', {
+      parse_mode: 'Markdown',
+      reply_markup: emptyKeyboard,
+    });
+  }
+
+  const keyboard = new InlineKeyboard();
+  for (const o of orders) {
+    const statusLabel = STATUS_LABELS[o.status] || o.status;
+    keyboard.text(`${o.order_code} — ${o.place_name} (${statusLabel})`, `order:client_view:${o.id}`).row();
+  }
+  keyboard.text('◀️ В главное меню', 'menu:main');
+
+  const text = (
+    `📋 *История ваших предзаказов*\n\n` +
+    `Нажмите на заказ, чтобы посмотреть детали и статус готовности:`
+  );
+
+  await ctx.reply(text, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard,
+  });
+});
+
 // Просмотр списка заказов жильца («Мои заказы»)
 ordersComposer.callbackQuery('orders:my', async (ctx) => {
   await ctx.answerCallbackQuery();
@@ -71,6 +104,10 @@ ordersComposer.callbackQuery(/^order:client_view:(\d+)$/, async (ctx) => {
     text += `• ${item.item_name} × ${item.quantity} = ${item.price * item.quantity} ₽\n`;
   }
 
+  if (order.comment) {
+    text += `\n💬 *Пожелание к заказу:* _${order.comment}_\n`;
+  }
+
   text += `\n💵 *Итого:* *${order.total_price} ₽* (оплата на месте)\n`;
 
   if (order.status === 'ready') {
@@ -83,7 +120,17 @@ ordersComposer.callbackQuery(/^order:client_view:(\d+)$/, async (ctx) => {
   });
 });
 
-// Отмена заказа жильцом (допустима строго в статусе 'sent')
+// Жилец подтвердил согласие на ожидание при задержке на кухне
+ordersComposer.callbackQuery(/^order:delay_ack:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery({ text: 'Спасибо за понимание! Сообщим, как только блюда будут готовы.' });
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+  } catch (err) {
+    // разметка могла уже быть обновлена
+  }
+});
+
+// Отмена заказа жильцом (в статусе 'sent' или при задержке)
 ordersComposer.callbackQuery(/^order:client_cancel:(\d+)$/, async (ctx) => {
   const orderId = Number(ctx.match[1]);
   const order = getOrderById(orderId);

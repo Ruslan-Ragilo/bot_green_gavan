@@ -10,6 +10,7 @@ const seedData = [
     description: 'Римская пицца из дровяной печи и домашние напитки',
     pickup_point: 'ул. Центральная, 4 (отдельный вход, зона выдачи)',
     group_chat_id: process.env.PIZZERIA_CHAT_ID ? Number(process.env.PIZZERIA_CHAT_ID) : null,
+    is_active: 0,
     items: [
       { name: 'Пицца Пепперони 30 см', description: 'Острая салями, моцарелла, томатный соус', price: 650, category: 'Пицца' },
       { name: 'Пицца Маргарита 30 см', description: 'Свежий базилик, томаты, двойная моцарелла', price: 520, category: 'Пицца' },
@@ -23,6 +24,7 @@ const seedData = [
     description: 'Свежеобжаренный спешелти кофе и завтраки целый день',
     pickup_point: 'Зелёный бульвар, 2 (центральный вход, барная стойка)',
     group_chat_id: process.env.VARKA_CHAT_ID ? Number(process.env.VARKA_CHAT_ID) : null,
+    is_active: 0,
     items: [
       { name: 'Капучино 300 мл', description: 'Эспрессо на зерне 100% арабика, взбитое молоко', price: 240, category: 'Кофе' },
       { name: 'Латте 400 мл', description: 'Нежный кофейный напиток с мягкой пенкой', price: 270, category: 'Кофе' },
@@ -37,6 +39,7 @@ const seedData = [
     description: 'Ремесленный хлеб на закваске и свежая сдоба каждое утро',
     pickup_point: 'ул. Парковая, 7 (пекарня у фонтана, окно предзаказа)',
     group_chat_id: process.env.BULOCHKI_CHAT_ID ? Number(process.env.BULOCHKI_CHAT_ID) : null,
+    is_active: 1,
     items: [
       { name: 'Синнабон с корицей', description: 'Фирменная булочка с корицей и крем-чизом', price: 210, category: 'Сдоба' },
       { name: 'Улитка со шпинатом и брынзой', description: 'Сытная слоеная выпечка', price: 190, category: 'Выпечка' },
@@ -48,11 +51,12 @@ const seedData = [
 
 const insertPlace = db.prepare(`
   INSERT INTO places (name, slug, description, pickup_point, group_chat_id, is_active)
-  VALUES (@name, @slug, @description, @pickup_point, @group_chat_id, 1)
+  VALUES (@name, @slug, @description, @pickup_point, @group_chat_id, @is_active)
   ON CONFLICT(slug) DO UPDATE SET
     name = excluded.name,
     description = excluded.description,
     pickup_point = excluded.pickup_point,
+    is_active = excluded.is_active,
     group_chat_id = COALESCE(excluded.group_chat_id, places.group_chat_id)
 `);
 
@@ -74,6 +78,7 @@ const transaction = db.transaction(() => {
     insertPlace.run({
       name: placeData.name,
       slug: placeData.slug,
+      is_active: placeData.is_active,
       description: placeData.description,
       pickup_point: placeData.pickup_point,
       group_chat_id: placeData.group_chat_id,

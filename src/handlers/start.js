@@ -1,6 +1,7 @@
 import { Composer } from 'grammy';
 import { upsertUser, deleteUserData } from '../db/repositories/users.js';
 import { getCart } from '../db/repositories/cart.js';
+import { getActivePlaces } from '../db/repositories/places.js';
 import { mainMenuKeyboard } from '../keyboards/client.js';
 
 export const startComposer = new Composer();
@@ -19,9 +20,12 @@ startComposer.command('start', async (ctx) => {
   });
 
   const cart = getCart(from.id);
+  const activePlaces = getActivePlaces();
+  const activePlaceName = activePlaces.length === 1 ? activePlaces[0].name : null;
+
   const text = (
-    `👋 *Добро пожаловать в сервис предзаказа ЖК «Зелёная Гавань»!*\n\n` +
-    `Здесь вы можете заранее заказать еду и напитки в заведениях нашего жилого комплекса и забрать заказ точно ко времени без очереди.\n\n` +
+    `👋 *Добро пожаловать в сервис предзаказа для жителей Зелёной Гавани!*\n\n` +
+    `Здесь вы можете заранее заказать еду и напитки в любимых заведениях Зелёной Гавани и забрать заказ точно ко времени без очереди.\n\n` +
     `📍 *Формат:* только самовывоз в точке выдачи заведения.\n` +
     `💳 *Оплата:* на месте при получении заказа.\n\n` +
     `Выберите действие в меню ниже:`
@@ -29,7 +33,7 @@ startComposer.command('start', async (ctx) => {
 
   await ctx.reply(text, {
     parse_mode: 'Markdown',
-    reply_markup: mainMenuKeyboard(cart.totalQuantity),
+    reply_markup: mainMenuKeyboard(cart.totalQuantity, activePlaceName),
   });
 });
 
@@ -37,21 +41,23 @@ startComposer.command('start', async (ctx) => {
 startComposer.callbackQuery('menu:main', async (ctx) => {
   await ctx.answerCallbackQuery();
   const cart = getCart(ctx.from.id);
+  const activePlaces = getActivePlaces();
+  const activePlaceName = activePlaces.length === 1 ? activePlaces[0].name : null;
 
   const text = (
-    `🏡 *Главное меню сервиса предзаказа ЖК «Зелёная Гавань»*\n\n` +
+    `🏡 *Главное меню сервиса предзаказов*\n\n` +
     `Выберите заведение, чтобы посмотреть меню, или перейдите в корзину.`
   );
 
   try {
     await ctx.editMessageText(text, {
       parse_mode: 'Markdown',
-      reply_markup: mainMenuKeyboard(cart.totalQuantity),
+      reply_markup: mainMenuKeyboard(cart.totalQuantity, activePlaceName),
     });
   } catch {
     await ctx.reply(text, {
       parse_mode: 'Markdown',
-      reply_markup: mainMenuKeyboard(cart.totalQuantity),
+      reply_markup: mainMenuKeyboard(cart.totalQuantity, activePlaceName),
     });
   }
 });

@@ -1,7 +1,7 @@
 # Окружение и секреты
 .env
 *.env
-!.env.example
+.idea/
 
 # Зависимости
 node_modules/

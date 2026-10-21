@@ -26,9 +26,9 @@ Telegram-бот предзаказа еды для ЖК «Зелёная Гав�
    npm install
    ```
 
-2. Создайте файл `.env` на основе `.env.example`:
+2. Создайте файл `.env` на основе `.env`:
    ```bash
-   cp .env.example .env
+   cp .env .env
    ```
    Укажите `BOT_TOKEN` и при необходимости `STAFF_TELEGRAM_ID`.
 

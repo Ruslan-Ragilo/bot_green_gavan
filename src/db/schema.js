@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS orders (
   comment TEXT,
   total_price INTEGER NOT NULL CHECK (total_price >= 0),
   group_message_id INTEGER,
+  cooking_minutes INTEGER DEFAULT 20,
+  ready_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

@@ -1,11 +1,12 @@
 import { InlineKeyboard } from 'grammy';
 
 // Главное меню жильца
-export function mainMenuKeyboard(cartTotalQuantity = 0) {
+export function mainMenuKeyboard(cartTotalQuantity = 0, activePlaceName = null) {
   const cartLabel = cartTotalQuantity > 0 ? `🛒 Корзина (${cartTotalQuantity})` : '🛒 Корзина';
+  const menuLabel = activePlaceName ? `🍽 Меню «${activePlaceName}»` : '🍽 Выбрать заведение';
 
   return new InlineKeyboard()
-    .text('🍽 Выбрать заведение', 'catalog:places').row()
+    .text(menuLabel, 'catalog:places').row()
     .text(cartLabel, 'cart:view')
     .text('📋 Мои заказы', 'orders:my');
 }
@@ -30,9 +31,9 @@ export function placeMenuKeyboard(placeId, items, cartTotalQuantity = 0) {
     keyboard.text(`${item.name} — ${item.price} ₽`, `item:${item.id}`).row();
   }
 
-  const cartLabel = cartTotalQuantity > 0 ? `🛒 В корзину (${cartTotalQuantity})` : '🛒 В корзину';
+  const cartLabel = cartTotalQuantity > 0 ? `🛒 В корзину (${cartTotalQuantity} шт.)` : '🛒 Корзина';
   keyboard.text(cartLabel, 'cart:view').row();
-  keyboard.text('◀️ К заведениям', 'catalog:places');
+  keyboard.text('◀️ В главное меню', 'menu:main');
 
   return keyboard;
 }
@@ -83,20 +84,23 @@ export function emptyCartKeyboard() {
     .text('◀️ В главное меню', 'menu:main');
 }
 
-// Быстрый выбор времени готовности заказа
+// Выбор времени готовности заказа
 export function timeSelectionKeyboard() {
   return new InlineKeyboard()
-    .text('⚡ Как можно скорее (~15 мин)', 'time:asap').row()
+    .text('⚡ Как можно скорее (~15–20 мин)', 'time:asap').row()
     .text('🕒 Через 30 минут', 'time:30m')
     .text('🕓 Через 45 минут', 'time:45m').row()
-    .text('🕔 Через 1 час', 'time:60m').row()
+    .text('🕔 Через 1 час', 'time:60m')
+    .text('✍️ Указать точное время', 'time:custom_prompt').row()
     .text('◀️ Назад в корзину', 'cart:view');
 }
 
 // Подтверждение оформления заказа
-export function orderConfirmKeyboard(timeKey) {
+export function orderConfirmKeyboard(timeKey, hasComment = false) {
+  const commentBtn = hasComment ? '✏️ Изменить пожелание' : '💬 Добавить пожелание к заказу';
   return new InlineKeyboard()
     .text('✅ Подтвердить предзаказ', `order:confirm:${timeKey}`).row()
+    .text(commentBtn, `order:comment_prompt:${timeKey}`).row()
     .text('◀️ Изменить время', 'cart:checkout:time');
 }
 
