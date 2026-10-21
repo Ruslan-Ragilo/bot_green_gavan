@@ -84,12 +84,36 @@ async function main() {
     });
 
     // Регистрируем Webhook в Telegram API
-    await bot.api.setWebhook(config.webhookUrl, {
+    const webhookOptions = {
       allowed_updates: ['message', 'callback_query', 'my_chat_member'],
       drop_pending_updates: false,
-    });
+    };
 
-    console.log('✅ Webhook успешно зарегистрирован в Telegram Bot API.');
+    if (config.webhookIp) {
+      webhookOptions.ip_address = config.webhookIp;
+    }
+
+    try {
+      await bot.api.setWebhook(config.webhookUrl, webhookOptions);
+      console.log('✅ Webhook успешно зарегистрирован в Telegram Bot API.');
+    } catch (err) {
+      const isDnsError = err?.description?.includes('Failed to resolve host') || err?.description?.includes('Temporary failure in name resolution');
+      if (isDnsError && !config.webhookIp) {
+        console.warn('⚠️ Telegram DNS временно не может разрешить домен воркера. Пробуем Anycast IP Cloudflare (188.114.96.11)...');
+        webhookOptions.ip_address = '188.114.96.11';
+        try {
+          await bot.api.setWebhook(config.webhookUrl, webhookOptions);
+          console.log('✅ Webhook успешно зарегистрирован в Telegram с прямым Anycast IP!');
+        } catch (retryErr) {
+          console.warn('⚠️ Попытка с 188.114.96.11 не удалась, пробуем резервный IP 188.114.97.11...');
+          webhookOptions.ip_address = '188.114.97.11';
+          await bot.api.setWebhook(config.webhookUrl, webhookOptions);
+          console.log('✅ Webhook успешно зарегистрирован в Telegram с резервным IP!');
+        }
+      } else {
+        throw err;
+      }
+    }
     console.log('⚡ Бот работает через Webhook и готов принимать заказы мгновенно!');
   } else {
     // === РЕЖИМ LONG POLLING (fallback при отсутствии WEBHOOK_URL) ===

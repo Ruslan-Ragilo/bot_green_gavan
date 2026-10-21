@@ -9,6 +9,7 @@ export const config = {
 
   // Webhook-настройки (для мгновенной доставки без polling)
   webhookUrl: process.env.WEBHOOK_URL || null,
+  webhookIp: process.env.WEBHOOK_IP || null,
   webhookHost: process.env.WEBHOOK_HOST || '0.0.0.0',
   webhookPort: Number(process.env.WEBHOOK_PORT) || 80,
 
