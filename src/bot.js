@@ -37,6 +37,10 @@ export function createBot() {
 
   // Централизованный перехват ошибок
   bot.catch((err) => {
+    const desc = err.error?.description || err.error?.message || err.message || '';
+    if (desc.includes('message is not modified')) {
+      return;
+    }
     const ctx = err.ctx;
     console.error(`[Bot Error] Ошибка при обработке апдейта ${ctx.update.update_id}:`, err.error);
   });
@@ -56,12 +60,20 @@ export function createBot() {
   // Замер времени сетевых вызовов к Telegram API через Cloudflare
   bot.api.config.use(async (prev, method, payload, signal) => {
     const apiStart = performance.now();
-    const res = await prev(method, payload, signal);
-    const apiDuration = (performance.now() - apiStart).toFixed(0);
-    if (method !== 'getUpdates') {
-      console.log(`📡 [API ${method}] Ответ за ${apiDuration} мс`);
+    try {
+      const res = await prev(method, payload, signal);
+      const apiDuration = (performance.now() - apiStart).toFixed(0);
+      if (method !== 'getUpdates') {
+        console.log(`📡 [API ${method}] Ответ за ${apiDuration} мс`);
+      }
+      return res;
+    } catch (apiErr) {
+      // Игнорируем штатный 400 при повторном клике на ту же кнопку (содержимое не изменилось)
+      if (apiErr?.description?.includes('message is not modified')) {
+        return true;
+      }
+      throw apiErr;
     }
-    return res;
   });
 
   // Логирование входящих событий и точного времени выполнения в миллисекундах
