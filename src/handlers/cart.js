@@ -10,6 +10,8 @@ import {
 } from '../keyboards/client.js';
 import { staffOrderKeyboard } from '../keyboards/staff.js';
 import { getDesiredTimeLabel, parseCustomTimeInput } from '../utils/time.js';
+import { upsertUser } from '../db/repositories/users.js';
+import { config } from '../../config.js';
 
 export const cartComposer = new Composer();
 
@@ -377,6 +379,14 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
   pendingCommentUsers.delete(userId);
   pendingCustomTimeUsers.delete(userId);
 
+  // Всегда сохраняем/обновляем профиль пользователя перед созданием заказа
+  upsertUser({
+    telegram_id: ctx.from.id,
+    first_name: ctx.from.first_name || '',
+    last_name: ctx.from.last_name || null,
+    username: ctx.from.username || null,
+  });
+
   let order;
   try {
     const cart = getCart(userId);
@@ -418,10 +428,31 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
         parse_mode: 'Markdown',
         reply_markup: staffOrderKeyboard(order),
       });
+      console.log(`📨 Заказ ${order.order_code} успешно доставлен в группу ${order.group_chat_id}`);
       // Сохраняем ID сообщения для дальнейших обновлений статусов сотрудниками
       setOrderGroupMessageId(order.id, groupMsg.message_id);
     } catch (err) {
-      console.error(`[Error] Не удалось отправить заказ ${order.order_code} в группу заведения:`, err);
+      console.error(`❌ [Error] Не удалось отправить заказ ${order.order_code} в группу ${order.group_chat_id}:`, err);
+      // Уведомляем администратора бота о сбое отправки в группу
+      for (const adminId of config.adminIds) {
+        ctx.api.sendMessage(adminId, `⚠️ *Ошибка отправки в группу ${order.group_chat_id}*\nЗаказ: ${order.order_code}\nПричина: ${err.message}\n\n${staffCardText}`, {
+          parse_mode: 'Markdown',
+          reply_markup: staffOrderKeyboard(order),
+        }).catch(() => {});
+      }
+    }
+  } else {
+    console.warn(`⚠️ [Warning] Заказ ${order.order_code} оформлен, но у заведения «${order.place_name}» (ID: ${order.place_id}) не настроен group_chat_id!`);
+    // Отправляем администраторам бота, чтобы заказ ни в коем случае не потерялся
+    for (const adminId of config.adminIds) {
+      try {
+        await ctx.api.sendMessage(adminId, `⚠️ *Заказ ${order.order_code} оформлен без привязанной группы кухни!*\nУ заведения «${order.place_name}» не привязана группа (настройте через /setup_place).\n\n${staffCardText}`, {
+          parse_mode: 'Markdown',
+          reply_markup: staffOrderKeyboard(order),
+        });
+      } catch (adminErr) {
+        console.error(`Не удалось отправить заказ админу ${adminId}:`, adminErr);
+      }
     }
   }
 

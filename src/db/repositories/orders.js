@@ -103,7 +103,7 @@ export function getOrderById(orderId) {
       u.phone
     FROM orders o
     JOIN places p ON p.id = o.place_id
-    JOIN users u ON u.telegram_id = o.user_id
+    LEFT JOIN users u ON u.telegram_id = o.user_id
     WHERE o.id = ?
   `);
 
@@ -181,7 +181,7 @@ export function getActiveOrdersForStaff(placeId = null) {
       u.phone
     FROM orders o
     JOIN places p ON p.id = o.place_id
-    JOIN users u ON u.telegram_id = o.user_id
+    LEFT JOIN users u ON u.telegram_id = o.user_id
     WHERE o.status IN ('sent', 'accepted', 'ready')
   `;
   const params = [];
