@@ -35,6 +35,9 @@ async function main() {
   // Запуск получения сообщений
   console.log('✅ Бот успешно запущен и ожидает заказов.');
   await bot.start({
+    allowed_updates: ['message', 'callback_query', 'my_chat_member'],
+    drop_pending_updates: false,
+    timeout: 10,
     onStart: (botInfo) => {
       console.log(`🤖 Бот авторизован как @${botInfo.username}`);
     },

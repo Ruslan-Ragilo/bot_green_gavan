@@ -13,6 +13,7 @@ export function createBot() {
   if (config.telegramApiRoot) {
     botOptions.client = {
       apiRoot: config.telegramApiRoot,
+      timeoutSeconds: 30,
     };
   }
 
@@ -22,6 +23,15 @@ export function createBot() {
   bot.catch((err) => {
     const ctx = err.ctx;
     console.error(`[Bot Error] Ошибка при обработке апдейта ${ctx.update.update_id}:`, err.error);
+  });
+
+  // Безопасный вызов answerCallbackQuery (не роняет обработчики при сетевом таймауте)
+  bot.use(async (ctx, next) => {
+    if (ctx.callbackQuery) {
+      const originalAnswer = ctx.answerCallbackQuery.bind(ctx);
+      ctx.answerCallbackQuery = (...args) => originalAnswer(...args).catch(() => {});
+    }
+    return next();
   });
 
   // Логирование входящих событий
