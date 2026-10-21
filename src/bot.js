@@ -25,11 +25,14 @@ export function createBot() {
     console.error(`[Bot Error] Ошибка при обработке апдейта ${ctx.update.update_id}:`, err.error);
   });
 
-  // Безопасный вызов answerCallbackQuery (не роняет обработчики при сетевом таймауте)
+  // Мгновенный неблокирующий вызов answerCallbackQuery (не задерживает смену экранов)
   bot.use(async (ctx, next) => {
     if (ctx.callbackQuery) {
       const originalAnswer = ctx.answerCallbackQuery.bind(ctx);
-      ctx.answerCallbackQuery = (...args) => originalAnswer(...args).catch(() => {});
+      ctx.answerCallbackQuery = (...args) => {
+        originalAnswer(...args).catch(() => {});
+        return Promise.resolve(true);
+      };
     }
     return next();
   });
