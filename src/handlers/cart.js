@@ -11,6 +11,7 @@ import {
 import { staffOrderKeyboard } from '../keyboards/staff.js';
 import { getDesiredTimeLabel, parseCustomTimeInput } from '../utils/time.js';
 import { upsertUser } from '../db/repositories/users.js';
+import { escapeMarkdown } from '../utils/text.js';
 import { config } from '../../config.js';
 
 export const cartComposer = new Composer();
@@ -406,15 +407,17 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
   await ctx.answerCallbackQuery({ text: `Заказ ${order.order_code} успешно оформлен!` });
 
   // 1. Формируем карточку заказа для группы заведения с выделенным блоком пожелания
-  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* *${order.comment}*\n` : '';
+  const clientName = escapeMarkdown(order.first_name || 'Жилец');
+  const clientUsername = order.username ? `(@${escapeMarkdown(order.username)})` : '';
+  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* *${escapeMarkdown(order.comment)}*\n` : '';
 
   const staffCardText = (
     `🔔 *НОВЫЙ ЗАКАЗ ${order.order_code}*\n\n` +
-    `👤 *Клиент:* ${order.first_name || 'Жилец'} ${order.username ? `(@${order.username})` : ''}\n` +
-    `⏱ *Время получения:* ${order.desired_time}\n` +
-    `📍 *Точка выдачи:* ${order.pickup_point}\n\n` +
+    `👤 *Клиент:* ${clientName} ${clientUsername}\n` +
+    `⏱ *Время получения:* ${escapeMarkdown(order.desired_time)}\n` +
+    `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n\n` +
     `*Позиции:*\n` +
-    order.items.map(i => `• ${i.item_name} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
+    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
     `\n` +
     commentBlock +
     `\n💵 *Итого:* *${order.total_price} ₽*\n` +
@@ -435,7 +438,7 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
       console.error(`❌ [Error] Не удалось отправить заказ ${order.order_code} в группу ${order.group_chat_id}:`, err);
       // Уведомляем администратора бота о сбое отправки в группу
       for (const adminId of config.adminIds) {
-        ctx.api.sendMessage(adminId, `⚠️ *Ошибка отправки в группу ${order.group_chat_id}*\nЗаказ: ${order.order_code}\nПричина: ${err.message}\n\n${staffCardText}`, {
+        ctx.api.sendMessage(adminId, `⚠️ *Ошибка отправки в группу ${order.group_chat_id}*\nЗаказ: ${order.order_code}\nПричина: ${escapeMarkdown(err.message)}\n\n${staffCardText}`, {
           parse_mode: 'Markdown',
           reply_markup: staffOrderKeyboard(order),
         }).catch(() => {});
@@ -446,7 +449,7 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
     // Отправляем администраторам бота, чтобы заказ ни в коем случае не потерялся
     for (const adminId of config.adminIds) {
       try {
-        await ctx.api.sendMessage(adminId, `⚠️ *Заказ ${order.order_code} оформлен без привязанной группы кухни!*\nУ заведения «${order.place_name}» не привязана группа (настройте через /setup_place).\n\n${staffCardText}`, {
+        await ctx.api.sendMessage(adminId, `⚠️ *Заказ ${order.order_code} оформлен без привязанной группы кухни!*\nУ заведения «${escapeMarkdown(order.place_name)}» не привязана группа (настройте через /setup_place).\n\n${staffCardText}`, {
           parse_mode: 'Markdown',
           reply_markup: staffOrderKeyboard(order),
         });
@@ -459,13 +462,13 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
   // 3. Отправляем подтверждение жильцу в личные сообщения
   let clientConfirmationText = (
     `✅ *Заказ ${order.order_code} отправлен в заведение!*\n\n` +
-    `🏪 *Заведение:* ${order.place_name}\n` +
-    `📍 *Точка самовывоза:* ${order.pickup_point}\n` +
-    `⏱ *Ожидаемое время:* ${order.desired_time}\n`
+    `🏪 *Заведение:* ${escapeMarkdown(order.place_name)}\n` +
+    `📍 *Точка самовывоза:* ${escapeMarkdown(order.pickup_point)}\n` +
+    `⏱ *Ожидаемое время:* ${escapeMarkdown(order.desired_time)}\n`
   );
 
   if (order.comment) {
-    clientConfirmationText += `💬 *Ваше пожелание:* _${order.comment}_\n`;
+    clientConfirmationText += `💬 *Ваше пожелание:* _${escapeMarkdown(order.comment)}_\n`;
   }
 
   clientConfirmationText += (

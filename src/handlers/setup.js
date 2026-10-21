@@ -16,6 +16,7 @@ import { addStaffMember, isStaffMember, getPlaceStaffList } from '../db/reposito
 import { createTestOrder, setOrderGroupMessageId } from '../db/repositories/orders.js';
 import { staffOrderKeyboard } from '../keyboards/staff.js';
 import { isAdmin } from '../../config.js';
+import { escapeMarkdown } from '../utils/text.js';
 
 export const setupComposer = new Composer();
 
@@ -210,14 +211,15 @@ setupComposer.callbackQuery(/^setup:test_order:(\d+)$/, async (ctx) => {
   // Создаем тестовый заказ
   const order = createTestOrder({ placeId, user: ctx.from });
 
-  // Формируем карточку заказа для группы заведения
+  const clientName = escapeMarkdown(order.first_name || 'Жилец');
+  const clientUsername = order.username ? `(@${escapeMarkdown(order.username)})` : '';
   const staffCardText = (
     `🔔 *ТЕСТОВЫЙ ЗАКАЗ ${order.order_code}*\n\n` +
-    `👤 *Клиент:* ${order.first_name || 'Жилец'} ${order.username ? `(@${order.username})` : ''}\n` +
-    `⏱ *Время получения:* ${order.desired_time}\n` +
-    `📍 *Точка выдачи:* ${order.pickup_point}\n\n` +
+    `👤 *Клиент:* ${clientName} ${clientUsername}\n` +
+    `⏱ *Время получения:* ${escapeMarkdown(order.desired_time)}\n` +
+    `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n\n` +
     `*Позиции:*\n` +
-    order.items.map(i => `• ${i.item_name} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
+    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
     `\n\n💵 *Итого:* *${order.total_price} ₽*\n` +
     `Статус: 🟡 *Отправлен (ожидает принятия)*`
   );

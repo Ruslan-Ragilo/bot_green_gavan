@@ -3,6 +3,7 @@ import { getOrderById, atomicUpdateOrderStatus, cancelOrderByStaff, ORDER_STATUS
 import { isStaffMember } from '../db/repositories/staff.js';
 import { staffOrderKeyboard } from '../keyboards/staff.js';
 import { formatMinskTime, parseDesiredTime } from '../utils/time.js';
+import { escapeMarkdown } from '../utils/text.js';
 
 export const staffComposer = new Composer();
 
@@ -25,18 +26,20 @@ function formatGroupCardText(order, staffName) {
     statusName = `Отменён (${staffName || 'сотрудник'})`;
   }
 
-  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* _${order.comment}_\n` : '';
+  const clientName = escapeMarkdown(order.first_name || 'Жилец');
+  const clientUsername = order.username ? `(@${escapeMarkdown(order.username)})` : '';
+  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* _${escapeMarkdown(order.comment)}_\n` : '';
   const readyBlock = (order.ready_at && ['accepted', 'ready'].includes(order.status))
     ? `\n⏱ *Ориентир готовности:* ~${order.ready_at}`
     : '';
 
   return (
     `📦 *ЗАКАЗ ${order.order_code}*\n\n` +
-    `👤 *Клиент:* ${order.first_name || 'Жилец'} ${order.username ? `(@${order.username})` : ''}\n` +
-    `⏱ *Время получения:* ${order.desired_time}\n` +
-    `📍 *Точка выдачи:* ${order.pickup_point}\n\n` +
+    `👤 *Клиент:* ${clientName} ${clientUsername}\n` +
+    `⏱ *Время получения:* ${escapeMarkdown(order.desired_time)}\n` +
+    `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n\n` +
     `*Позиции:*\n` +
-    order.items.map(i => `• ${i.item_name} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
+    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
     `\n` +
     commentBlock +
     readyBlock +

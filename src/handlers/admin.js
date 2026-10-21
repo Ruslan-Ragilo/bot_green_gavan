@@ -13,6 +13,7 @@ import {
   cancelOrderByAdmin,
 } from '../db/repositories/orders.js';
 import { getTotalUsersCount, getAllUserIds } from '../db/repositories/users.js';
+import { escapeMarkdown } from '../utils/text.js';
 
 export const adminComposer = new Composer();
 
@@ -412,9 +413,11 @@ adminComposer.command('order', async (ctx) => {
     return ctx.reply(`❌ Заказ с номером *«${query}»* не найден в базе данных.`, { parse_mode: 'Markdown' });
   }
 
+  const clientName = escapeMarkdown(order.first_name || 'Жилец');
+  const clientUsername = order.username ? `(@${escapeMarkdown(order.username)})` : '';
   let text = `📦 *ДЕТАЛИ ЗАКАЗА ${order.order_code}*\n\n`;
-  text += `🏪 *Заведение:* ${order.place_name}\n`;
-  text += `👤 *Клиент:* ${order.first_name || 'Жилец'} ${order.username ? `(@${order.username})` : ''} (ID: \`${order.user_id}\`)\n`;
+  text += `🏪 *Заведение:* ${escapeMarkdown(order.place_name)}\n`;
+  text += `👤 *Клиент:* ${clientName} ${clientUsername} (ID: \`${order.user_id}\`)\n`;
   text += `⏱ *Время выдачи:* ${order.desired_time}\n`;
   text += `📍 *Точка выдачи:* ${order.pickup_point}\n`;
   text += `📊 *Статус:* *${order.status.toUpperCase()}*\n`;

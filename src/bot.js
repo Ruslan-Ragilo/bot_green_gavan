@@ -1,5 +1,4 @@
 import { Bot } from 'grammy';
-import https from 'node:https';
 import { config } from '../config.js';
 import { startComposer } from './handlers/start.js';
 import { catalogComposer } from './handlers/catalog.js';
@@ -9,24 +8,11 @@ import { staffComposer } from './handlers/staff.js';
 import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 
-// Пул постоянных HTTPS-соединений: сокеты живут до 3 сек, предотвращая разрыв со стороны Cloudflare (5 сек)
-const keepAliveAgent = new https.Agent({
-  keepAlive: true,
-  keepAliveMsecs: 1000,
-  maxSockets: 25,
-  maxFreeSockets: 5,
-  timeout: 3000,
-});
-
 export function createBot() {
   const botOptions = {
     client: {
-      timeoutSeconds: 8,
+      timeoutSeconds: 30,
       canUseWebhookReply: (method) => method === 'answerCallbackQuery',
-      baseFetchConfig: {
-        agent: keepAliveAgent,
-        compress: true,
-      },
     },
   };
 
