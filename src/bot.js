@@ -9,7 +9,14 @@ import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 
 export function createBot() {
-  const bot = new Bot(config.botToken);
+  const botOptions = {};
+  if (config.telegramApiRoot) {
+    botOptions.client = {
+      apiRoot: config.telegramApiRoot,
+    };
+  }
+
+  const bot = new Bot(config.botToken, botOptions);
 
   // Централизованный перехват ошибок
   bot.catch((err) => {

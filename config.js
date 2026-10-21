@@ -4,6 +4,9 @@ export const config = {
   // Токен Telegram-бота
   botToken: process.env.BOT_TOKEN || '',
 
+  // Кастомный адрес Bot API (реверс-прокси, например Cloudflare Worker)
+  telegramApiRoot: process.env.TELEGRAM_API_ROOT || null,
+
   // Путь к файлу базы данных SQLite
   dbPath: process.env.DATABASE_PATH || './data/bot.db',
 
