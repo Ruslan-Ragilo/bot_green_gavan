@@ -7,6 +7,11 @@ export const config = {
   // Кастомный адрес Bot API (реверс-прокси, например Cloudflare Worker)
   telegramApiRoot: process.env.TELEGRAM_API_ROOT || null,
 
+  // Webhook-настройки (для мгновенной доставки без polling)
+  webhookUrl: process.env.WEBHOOK_URL || null,
+  webhookHost: process.env.WEBHOOK_HOST || '0.0.0.0',
+  webhookPort: Number(process.env.WEBHOOK_PORT) || 80,
+
   // Путь к файлу базы данных SQLite
   dbPath: process.env.DATABASE_PATH || './data/bot.db',
 
