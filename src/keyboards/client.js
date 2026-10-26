@@ -6,6 +6,7 @@ export function mainMenuKeyboard(cartTotalQuantity = 0, activePlaceName = null) 
   const menuLabel = activePlaceName ? `🍽 Меню «${activePlaceName}»` : '🍽 Выбрать заведение';
 
   return new InlineKeyboard()
+    .text('🚌 Расписание транспорта', 'transport:menu').row()
     .text(menuLabel, 'catalog:places').row()
     .text(cartLabel, 'cart:view')
     .text('📋 Мои заказы', 'orders:my');

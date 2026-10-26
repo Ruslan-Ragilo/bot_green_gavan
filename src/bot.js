@@ -7,6 +7,7 @@ import { ordersComposer } from './handlers/orders.js';
 import { staffComposer } from './handlers/staff.js';
 import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
+import { transportComposer } from './handlers/transport.js';
 
 export function createBot() {
   const botOptions = {
@@ -70,6 +71,7 @@ export function createBot() {
   bot.use(adminComposer);
   bot.use(setupComposer);
   bot.use(startComposer);
+  bot.use(transportComposer);
   bot.use(catalogComposer);
   bot.use(cartComposer);
   bot.use(ordersComposer);
@@ -84,6 +86,7 @@ export async function setupBotCommands(bot) {
     // 1. Команды для обычных пользователей в личных сообщениях
     await bot.api.setMyCommands([
       { command: 'start', description: '🏠 Главное меню' },
+      { command: 'transport', description: '🚌 Расписание транспорта' },
       { command: 'orders', description: '📋 Мои заказы' },
       { command: 'cart', description: '🛒 Корзина' },
     ], {
@@ -109,6 +112,7 @@ export async function setupBotCommands(bot) {
         await bot.api.setMyCommands([
           { command: 'admin', description: '👑 Панель администратора' },
           { command: 'start', description: '🏠 Главное меню' },
+          { command: 'transport', description: '🚌 Расписание транспорта' },
           { command: 'order', description: '🔍 Найти заказ по коду' },
           { command: 'broadcast', description: '📢 Рассылка жильцам ЖК' },
           { command: 'orders', description: '📋 Мои заказы' },

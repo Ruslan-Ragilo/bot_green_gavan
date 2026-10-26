@@ -14,6 +14,7 @@ import {
 } from '../db/repositories/orders.js';
 import { getTotalUsersCount, getAllUserIds } from '../db/repositories/users.js';
 import { escapeMarkdown } from '../utils/text.js';
+import { checkAndUpdateTransportSchedules } from '../jobs/transportUpdater.js';
 
 export const adminComposer = new Composer();
 
@@ -26,6 +27,7 @@ function adminMenuKeyboard() {
     .text('📊 Статистика и заказы', 'admin:stats').row()
     .text('⏸ Приём заказов (Пауза/Пуск)', 'admin:places_pause').row()
     .text('🚫 Стоп-лист меню', 'admin:stop_list').row()
+    .text('🚌 Обновить расписание транспорта', 'admin:update_transport').row()
     .text('📢 Рассылка жильцам ЖК', 'admin:broadcast_prompt').row()
     .text('🔍 Найти заказ по номеру', 'admin:find_prompt');
 }
@@ -488,3 +490,52 @@ adminComposer.callbackQuery(/^admin:cancel_order:(\d+)$/, async (ctx) => {
     reply_markup: new InlineKeyboard().text('◀️ В админ-меню', 'admin:main'),
   });
 });
+
+// Ручной запуск проверки и обновления расписания транспорта
+adminComposer.callbackQuery('admin:update_transport', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: '⛔ Доступ запрещён', show_alert: true });
+  await ctx.answerCallbackQuery({ text: 'Проверяем расписание на портале...' });
+
+  const waitMsg = await ctx.reply('⏳ *Выполняется синхронизация расписания с порталом Колодищи/Минсктранс...*', {
+    parse_mode: 'Markdown',
+  });
+
+  const res = await checkAndUpdateTransportSchedules(ctx.api);
+
+  let replyText = '';
+  if (res.updated) {
+    replyText = (
+      `✅ *Расписание успешно обновлено!*\n\n` +
+      `Обнаружены и внесены следующие изменения:\n\n` +
+      res.changes.join('\n\n')
+    );
+  } else if (res.error) {
+    replyText = `⚠️ *Ошибка при проверке:* ${res.error}\n_Прежнее расписание оставлено без изменений._`;
+  } else {
+    replyText = `✅ *Расписание актуально!* Изменений на портале не обнаружено. Все рейсы совпадают с текущими данными бота.`;
+  }
+
+  try {
+    await ctx.api.deleteMessage(ctx.chat.id, waitMsg.message_id);
+  } catch {}
+
+  await ctx.reply(replyText, {
+    parse_mode: 'Markdown',
+    reply_markup: new InlineKeyboard()
+      .text('🚌 Посмотреть расписание', 'transport:menu').row()
+      .text('◀️ В админ-меню', 'admin:main'),
+  });
+});
+
+adminComposer.command('update_transport', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) return;
+  const res = await checkAndUpdateTransportSchedules(ctx.api);
+  if (res.updated) {
+    await ctx.reply(`✅ Расписание обновлено:\n\n${res.changes.join('\n')}`);
+  } else if (res.error) {
+    await ctx.reply(`⚠️ Ошибка: ${res.error}`);
+  } else {
+    await ctx.reply('✅ Расписание проверено: изменений нет, всё актуально.');
+  }
+});
+
