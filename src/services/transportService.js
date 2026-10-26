@@ -3,7 +3,9 @@ import path from 'node:path';
 
 const DATA_FILE = path.resolve(process.cwd(), 'data', 'transport_schedule.json');
 
-// Базовое расписание по умолчанию (проверено и актуально)
+/**
+ * Базовое расписание по умолчанию со всеми остановками из официальной схемы движения
+ */
 export const DEFAULT_SCHEDULE = {
   routes: {
     '200c': {
@@ -22,6 +24,7 @@ export const DEFAULT_SCHEDULE = {
           title: '🏙 В Минск (к ст. м. Уручье)',
           fromStation: 'Бульвар Зелёная Гавань',
           toStation: 'ст. м. Уручье / ДС Уручье-2',
+          baseStationId: 'zelenaya_gavan',
           weekdays: [
             '06:33', '10:16', '11:44', '14:12', '15:12',
             '16:08', '17:37', '19:19', '21:00', '22:15', '23:30',
@@ -31,13 +34,36 @@ export const DEFAULT_SCHEDULE = {
             '13:34', '14:53', '16:08', '17:38', '19:29',
             '20:48', '22:03', '23:18',
           ],
+          stops: [
+            { id: 'zelenaya_gavan', name: 'Бульвар «Зелёная Гавань»', offsetMinutes: 0, isDefault: true },
+            { id: 'azs', name: 'АЗС', offsetMinutes: 10 },
+            { id: 'poligon', name: 'Полигон', offsetMinutes: 12 },
+            { id: 'kech', name: 'Героев 120-й дивизии', offsetMinutes: 16 },
+            { id: 'sirenevaya', name: 'Сиреневая', offsetMinutes: 17 },
+            { id: 'rinok_uruchie', name: 'Рынок «Уручье-3»', offsetMinutes: 21 },
+            { id: 'ostroshitskaya', name: 'Острошицкая', offsetMinutes: 23 },
+            { id: 'metro_uruchie', name: 'ст. м. «Уручье»', offsetMinutes: 24 },
+            { id: 'russiyanova', name: 'Руссиянова', offsetMinutes: 26 },
+            { id: 'pervomaiskii', name: 'Универсам «Первомайский»', offsetMinutes: 28 },
+            { id: 'tc_uruchie', name: 'ТЦ «Уручье»', offsetMinutes: 30 },
+            { id: 'ds_uruchie_2', name: 'ДС «Уручье-2»', offsetMinutes: 32 },
+          ],
         },
         to_gavan: {
           id: 'to_gavan',
           title: '🏡 В Зелёную Гавань (из Минска)',
-          fromStation: 'ст. м. Уручье',
+          fromStation: 'ДС Уручье-2 / ст. м. Уручье',
           toStation: 'Бульвар Зелёная Гавань',
-          note: 'Отправление от ДС Уручье-2 на ~7 мин раньше времени у метро',
+          baseStationId: 'ds_uruchie_2',
+          baseWeekdays: [
+            '05:54', '07:18', '09:38', '11:06', '12:33',
+            '17:00', '20:22', '21:37', '22:52',
+          ],
+          baseWeekends: [
+            '05:54', '07:09', '08:39', '10:27', '11:41',
+            '12:56', '14:16', '15:30', '17:00', '18:50',
+            '20:10', '21:25', '22:40',
+          ],
           weekdays: [
             '06:01', '07:25', '09:45', '11:13', '12:40',
             '17:07', '20:29', '21:44', '22:59',
@@ -46,6 +72,20 @@ export const DEFAULT_SCHEDULE = {
             '06:01', '07:16', '08:46', '10:34', '11:48',
             '13:03', '14:23', '15:37', '17:07', '18:57',
             '20:17', '21:32', '22:47',
+          ],
+          stops: [
+            { id: 'ds_uruchie_2', name: 'ДС «Уручье-2»', offsetMinutes: 0 },
+            { id: 'tc_uruchie', name: 'ТЦ «Уручье»', offsetMinutes: 2 },
+            { id: 'pervomaiskii', name: 'Универсам «Первомайский»', offsetMinutes: 4 },
+            { id: 'russiyanova', name: 'Руссиянова', offsetMinutes: 5 },
+            { id: 'metro_uruchie', name: 'ст. м. «Уручье»', offsetMinutes: 7, isDefault: true },
+            { id: 'ostroshitskaya', name: 'Острошицкая', offsetMinutes: 8 },
+            { id: 'rinok_uruchie', name: 'Рынок «Уручье-3»', offsetMinutes: 10 },
+            { id: 'sirenevaya', name: 'Сиреневая', offsetMinutes: 14 },
+            { id: 'kech', name: 'Героев 120-й дивизии', offsetMinutes: 15 },
+            { id: 'poligon', name: 'Полигон', offsetMinutes: 20 },
+            { id: 'azs', name: 'АЗС', offsetMinutes: 21 },
+            { id: 'zelenaya_gavan', name: 'Бульвар «Зелёная Гавань»', offsetMinutes: 31 },
           ],
         },
       },
@@ -66,18 +106,38 @@ export const DEFAULT_SCHEDULE = {
           title: '🏙 В Минск (к ст. м. Уручье)',
           fromStation: 'Бульвар Зелёная Гавань',
           toStation: 'ст. м. Уручье / ДС Уручье-2',
-          note: 'Маршрут следует с заездом в Колодищи-2',
+          baseStationId: 'zelenaya_gavan',
           weekdays: ['07:58', '13:13'],
           weekends: [],
+          stops: [
+            { id: 'zelenaya_gavan', name: 'Бульвар «Зелёная Гавань»', offsetMinutes: 0, isDefault: true },
+            { id: 'kolodischi_2', name: 'Колодищи-2 (Ягодная)', offsetMinutes: 6 },
+            { id: 'azs', name: 'АЗС', offsetMinutes: 12 },
+            { id: 'poligon', name: 'Полигон', offsetMinutes: 14 },
+            { id: 'kech', name: 'Героев 120-й дивизии', offsetMinutes: 18 },
+            { id: 'metro_uruchie', name: 'ст. м. «Уручье»', offsetMinutes: 26 },
+            { id: 'ds_uruchie_2', name: 'ДС «Уручье-2»', offsetMinutes: 34 },
+          ],
         },
         to_gavan: {
           id: 'to_gavan',
           title: '🏡 В Зелёную Гавань (из Минска)',
           fromStation: 'ст. м. Уручье',
           toStation: 'Бульвар Зелёная Гавань',
-          note: 'Отправление от ДС Уручье-2 на ~7 мин раньше времени у метро',
+          baseStationId: 'ds_uruchie_2',
+          baseWeekdays: ['13:05', '14:05', '15:05', '18:14'],
+          baseWeekends: [],
           weekdays: ['13:12', '14:12', '15:12', '18:21'],
           weekends: [],
+          stops: [
+            { id: 'ds_uruchie_2', name: 'ДС «Уручье-2»', offsetMinutes: 0 },
+            { id: 'metro_uruchie', name: 'ст. м. «Уручье»', offsetMinutes: 7, isDefault: true },
+            { id: 'kech', name: 'Героев 120-й дивизии', offsetMinutes: 15 },
+            { id: 'poligon', name: 'Полигон', offsetMinutes: 20 },
+            { id: 'azs', name: 'АЗС', offsetMinutes: 21 },
+            { id: 'kolodischi_2', name: 'Колодищи-2 (Ягодная)', offsetMinutes: 27 },
+            { id: 'zelenaya_gavan', name: 'Бульвар «Зелёная Гавань»', offsetMinutes: 33 },
+          ],
         },
       },
     },
@@ -97,7 +157,7 @@ export const DEFAULT_SCHEDULE = {
           title: '🏙 В Минск (к ст. м. Могилёвская / Восток)',
           fromStation: 'Бульвар Зелёная Гавань',
           toStation: 'ст. м. Могилёвская / ст. м. Восток (Dana Mall)',
-          note: 'Остановки по требованию: Б. Стиклево, Байкальская, Борисовский тракт',
+          baseStationId: 'zelenaya_gavan',
           intervalInfoWeekday: 'С 06:40 до 19:30 (каждые 20–30 мин в пик, до 40 мин днем)',
           intervalInfoWeekend: 'С 08:30 до 18:30 (примерно каждый час)',
           weekdays: [
@@ -110,13 +170,20 @@ export const DEFAULT_SCHEDULE = {
             '08:30', '09:30', '10:30', '11:30', '13:30',
             '14:30', '16:30', '17:30', '18:30',
           ],
+          stops: [
+            { id: 'zelenaya_gavan', name: 'Бульвар «Зелёная Гавань»', offsetMinutes: 0, isDefault: true },
+            { id: 'baykalskaya', name: 'Байкальская / МКАД', offsetMinutes: 12 },
+            { id: 'mogilevskaya', name: 'ст. м. «Могилёвская»', offsetMinutes: 16 },
+            { id: 'borisovskiy', name: 'ст. м. «Борисовский тракт»', offsetMinutes: 26 },
+            { id: 'vostok', name: 'ст. м. «Восток» (Dana Mall)', offsetMinutes: 30 },
+          ],
         },
         to_gavan: {
           id: 'to_gavan',
           title: '🏡 В Зелёную Гавань (от ст. м. Восток / Могилёвская)',
           fromStation: 'ст. м. Восток (Dana Mall) / ст. м. Могилёвская',
           toStation: 'Бульвар Зелёная Гавань',
-          note: 'Посадка: у ст. м. Восток (около ТРЦ Dana Mall) и ст. м. Могилёвская (съезд МКАД/Ангарская)',
+          baseStationId: 'vostok',
           intervalInfoWeekday: 'С 07:15 до 19:00 (каждые 20–30 мин в пик, до 40 мин днем)',
           intervalInfoWeekend: 'С 09:00 до 19:00 (примерно раз в час)',
           weekdays: [
@@ -128,6 +195,13 @@ export const DEFAULT_SCHEDULE = {
           weekends: [
             '09:00', '10:00', '11:00', '12:00', '14:00',
             '15:00', '17:00', '18:00', '19:00',
+          ],
+          stops: [
+            { id: 'vostok', name: 'ст. м. «Восток» (Dana Mall)', offsetMinutes: 0, isDefault: true },
+            { id: 'borisovskiy', name: 'ст. м. «Борисовский тракт»', offsetMinutes: 4 },
+            { id: 'mogilevskaya', name: 'ст. м. «Могилёвская» (съезд МКАД)', offsetMinutes: 15 },
+            { id: 'baykalskaya', name: 'Байкальская / МКАД', offsetMinutes: 18 },
+            { id: 'zelenaya_gavan', name: 'Бульвар «Зелёная Гавань»', offsetMinutes: 30 },
           ],
         },
       },
@@ -148,13 +222,17 @@ export function getTransportSchedule() {
     if (fs.existsSync(DATA_FILE)) {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
       cachedSchedule = JSON.parse(raw);
-      return cachedSchedule;
+
+      // Проверяем наличие секции остановок stops (миграция со старого формата)
+      if (cachedSchedule?.routes?.['200c']?.directions?.to_minsk?.stops) {
+        return cachedSchedule;
+      }
     }
   } catch (err) {
     console.error('[Transport Service] Ошибка чтения transport_schedule.json:', err.message);
   }
 
-  // Если файла нет или ошибка чтения — сохраняем базовый
+  // Если файла нет или старая структура — обновляем до DEFAULT_SCHEDULE
   cachedSchedule = structuredClone(DEFAULT_SCHEDULE);
   saveTransportSchedule(cachedSchedule);
   return cachedSchedule;
@@ -177,6 +255,18 @@ export function saveTransportSchedule(schedule) {
     console.error('[Transport Service] Ошибка записи transport_schedule.json:', err.message);
     return false;
   }
+}
+
+/**
+ * Прибавление минут к строке 'HH:MM'
+ */
+export function addMinutesToTime(timeStr, offsetMinutes) {
+  if (!offsetMinutes) return timeStr;
+  const [h, m] = timeStr.split(':').map(Number);
+  const total = h * 60 + m + offsetMinutes;
+  const newH = Math.floor(total / 60) % 24;
+  const newM = total % 60;
+  return `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`;
 }
 
 /**
@@ -226,7 +316,6 @@ export function findNextDepartures(timesList, currentTotalMinutes, limit = 3) {
     minutes: parseTimeToMinutes(t),
   })).sort((a, b) => a.minutes - b.minutes);
 
-  // Ищем рейсы, которые будут позже текущего времени
   const upcoming = parsed.filter((item) => item.minutes >= currentTotalMinutes);
 
   return upcoming.slice(0, limit).map((item) => {
@@ -251,6 +340,52 @@ export function findNextDepartures(timesList, currentTotalMinutes, limit = 3) {
 }
 
 /**
+ * Получение списка всех остановок для маршрута и направления
+ */
+export function getRouteStops(routeId, directionId) {
+  const schedule = getTransportSchedule();
+  const dir = schedule.routes[routeId]?.directions?.[directionId];
+  return dir?.stops || [];
+}
+
+/**
+ * Получение остановки по умолчанию (или первой)
+ */
+export function getDefaultStop(routeId, directionId) {
+  const stops = getRouteStops(routeId, directionId);
+  return stops.find((s) => s.isDefault) || stops[0] || null;
+}
+
+/**
+ * Расчет поминутного расписания для конкретной остановки посадки
+ */
+export function getStopSchedule(routeId, directionId, stopId, dayType) {
+  const schedule = getTransportSchedule();
+  const dir = schedule.routes[routeId]?.directions?.[directionId];
+  if (!dir) return { stop: null, times: [] };
+
+  const stops = dir.stops || [];
+  const stop = stops.find((s) => s.id === stopId) || getDefaultStop(routeId, directionId);
+  if (!stop) return { stop: null, times: [] };
+
+  // Если направление от ДС Уручье-2 (to_gavan) — берем базовые времена от ДС Уручье-2
+  let baseTimes = [];
+  if (dir.baseStationId === 'ds_uruchie_2' && dir.baseWeekdays) {
+    baseTimes = dayType === 'weekends' ? (dir.baseWeekends || []) : (dir.baseWeekdays || []);
+  } else {
+    baseTimes = dayType === 'weekends' ? (dir.weekends || []) : (dir.weekdays || []);
+  }
+
+  // Смещаем базовое время на минуты до выбранной остановки
+  const times = baseTimes.map((t) => addMinutesToTime(t, stop.offsetMinutes));
+
+  return {
+    stop,
+    times,
+  };
+}
+
+/**
  * Получение сводки ближайших рейсов по всем маршрутам в обе стороны
  */
 export function getAllNextDepartures() {
@@ -272,14 +407,15 @@ export function getAllNextDepartures() {
       const dir = route.directions[dirId];
       if (!dir) continue;
 
-      const times = dir[dayKey] || [];
+      const defaultStop = getDefaultStop(routeId, dirId);
+      const { times } = getStopSchedule(routeId, dirId, defaultStop?.id, dayKey);
       const next = findNextDepartures(times, now.totalMinutes, 2);
 
       result[dirId].push({
         routeId: route.id,
         routeNumber: route.number,
         routeBadge: route.badge,
-        fromStation: dir.fromStation,
+        fromStation: defaultStop?.name || dir.fromStation,
         toStation: dir.toStation,
         nextDepartures: next,
         hasMoreToday: next.length > 0,
