@@ -1,35 +1,35 @@
 import { InlineKeyboard } from 'grammy';
-import { getRouteStops, getDefaultStop } from '../services/transportService.js';
+import { getRouteStops } from '../services/transportService.js';
 
 /**
- * Главное меню раздела транспорта
+ * Шаг 1: Выбор транспорта
  */
 export function transportMenuKeyboard() {
   return new InlineKeyboard()
-    .text('⚡ Ближайшие рейсы прямо сейчас', 'transport:next').row()
-    .text('🚌 Автобус 200С (ст. м. Уручье)', 'transport:route:200c').row()
-    .text('🚌 Автобус 200дС (Колодищи-2 / Уручье)', 'transport:route:200dc').row()
-    .text('🚐 Маршрутка 1222-ТК (Восток / Могилёвская)', 'transport:route:1222tk').row()
+    .text('🚌 Автобус 200С', 'transport:route:200c').row()
+    .text('🚌 Автобус 200дС (через Колодищи-2)', 'transport:route:200dc').row()
+    .text('🚐 Маршрутка 1222-ТК', 'transport:route:1222tk').row()
     .text('◀️ В главное меню', 'menu:main');
 }
 
 /**
- * Клавиатура выбора направления движения для маршрута
+ * Шаг 2: Выбор направления
  */
 export function routeDirectionKeyboard(routeId) {
   return new InlineKeyboard()
-    .text('🏙 В Минск (из Зелёной Гавани)', `transport:view:${routeId}:to_minsk:default:auto`).row()
-    .text('🏡 В Зелёную Гавань (из Минска)', `transport:view:${routeId}:to_gavan:default:auto`).row()
-    .text('◀️ Назад ко всем маршрутам', 'transport:menu');
+    .text('🏙 В Минск', `transport:dir:${routeId}:to_minsk`).row()
+    .text('🏡 В Зелёную Гавань', `transport:dir:${routeId}:to_gavan`).row()
+    .text('◀️ Назад к выбору транспорта', 'transport:menu');
 }
 
 /**
- * Клавиатура выбора конкретной остановки посадки
+ * Шаг 3: Выбор остановки
  */
-export function stopsSelectionKeyboard(routeId, directionId, currentStopId, dayType) {
+export function stopsSelectionKeyboard(routeId, directionId, currentStopId = null, dayType = 'auto') {
   const keyboard = new InlineKeyboard();
   const stops = getRouteStops(routeId, directionId);
 
+  // Для компактности отображаем кнопки остановок
   for (let i = 0; i < stops.length; i++) {
     const s = stops[i];
     const isSelected = s.id === currentStopId;
@@ -39,53 +39,40 @@ export function stopsSelectionKeyboard(routeId, directionId, currentStopId, dayT
     keyboard.text(label, `transport:view:${routeId}:${directionId}:${s.id}:${dayType}`).row();
   }
 
-  keyboard.text('◀️ Назад к расписанию', `transport:view:${routeId}:${directionId}:${currentStopId}:${dayType}`);
+  keyboard.text('◀️ Назад к выбору направления', `transport:route:${routeId}`);
   return keyboard;
 }
 
 /**
- * Клавиатура подробного расписания конкретного маршрута для выбранной остановки
+ * Экран расписания для выбранной остановки
  */
-export function routeScheduleKeyboard(routeId, directionId, currentDayType, currentStopId, yandexMapsUrl = null) {
+export function scheduleKeyboard(routeId, directionId, stopId, currentDayType, yandexMapsUrl = null) {
   const keyboard = new InlineKeyboard();
 
-  // 1. Кнопка смены остановки
-  keyboard.text('🚏 Выбрать другую остановку', `transport:stops:${routeId}:${directionId}:${currentStopId}:${currentDayType}`).row();
-
-  // 2. Переключение Будни / Выходные
+  // 1. Переключение Будни / Выходные
   if (currentDayType === 'weekdays') {
-    keyboard.text('📅 Показать расписание на ВЫХОДНЫЕ', `transport:view:${routeId}:${directionId}:${currentStopId}:weekends`).row();
+    keyboard.text('📅 Расписание на ВЫХОДНЫЕ', `transport:view:${routeId}:${directionId}:${stopId}:weekends`).row();
   } else {
-    keyboard.text('📅 Показать расписание на БУДНИ', `transport:view:${routeId}:${directionId}:${currentStopId}:weekdays`).row();
+    keyboard.text('📅 Расписание на БУДНИ', `transport:view:${routeId}:${directionId}:${stopId}:weekdays`).row();
   }
 
-  // 3. Переключение направления (с остановкой по умолчанию)
-  const oppositeDir = directionId === 'to_minsk' ? 'to_gavan' : 'to_minsk';
-  const oppositeLabel = directionId === 'to_minsk' ? '🔄 В Зелёную Гавань (обратно)' : '🔄 В Минск (обратно)';
-  keyboard.text(oppositeLabel, `transport:view:${routeId}:${oppositeDir}:default:${currentDayType}`).row();
+  // 2. Смена остановки
+  keyboard.text('🚏 Сменить остановку', `transport:dir:${routeId}:${directionId}:${currentDayType}`).row();
 
-  // 4. Ссылка на онлайн-карту движения в Яндекс Картах
+  // 3. Смена направления
+  const oppositeDir = directionId === 'to_minsk' ? 'to_gavan' : 'to_minsk';
+  const oppositeLabel = directionId === 'to_minsk' ? '🔄 В обратную сторону (в Гавань)' : '🔄 В обратную сторону (в Минск)';
+  keyboard.text(oppositeLabel, `transport:dir:${routeId}:${oppositeDir}`).row();
+
+  // 4. Онлайн карта
   if (yandexMapsUrl) {
-    keyboard.url('📍 Открыть Яндекс Карты (онлайн GPS)', yandexMapsUrl).row();
+    keyboard.url('📍 Яндекс Карты (онлайн GPS)', yandexMapsUrl).row();
   }
 
   // 5. Навигация
   keyboard
-    .text('◀️ Маршруты', 'transport:menu')
-    .text('🏠 Меню', 'menu:main');
+    .text('🚌 К транспорту', 'transport:menu')
+    .text('🏠 Главное меню', 'menu:main');
 
   return keyboard;
-}
-
-/**
- * Клавиатура экрана "Ближайшие рейсы"
- */
-export function nextDeparturesKeyboard() {
-  return new InlineKeyboard()
-    .text('🔄 Обновить время', 'transport:next').row()
-    .text('🚌 200С', 'transport:route:200c')
-    .text('🚌 200дС', 'transport:route:200dc')
-    .text('🚐 1222-ТК', 'transport:route:1222tk').row()
-    .text('◀️ Все маршруты', 'transport:menu')
-    .text('🏠 В главное меню', 'menu:main');
 }

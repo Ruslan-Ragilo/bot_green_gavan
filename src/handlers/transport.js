@@ -3,113 +3,42 @@ import {
   getTransportSchedule,
   getMinskTime,
   findNextDepartures,
-  getAllNextDepartures,
   getStopSchedule,
-  getDefaultStop,
-  getRouteStops,
 } from '../services/transportService.js';
 import {
   transportMenuKeyboard,
   routeDirectionKeyboard,
-  routeScheduleKeyboard,
   stopsSelectionKeyboard,
-  nextDeparturesKeyboard,
+  scheduleKeyboard,
 } from '../keyboards/transport.js';
 
 export const transportComposer = new Composer();
 
-/**
- * Главный экран раздела транспорта
- */
-function renderTransportMenuText() {
-  const minsk = getMinskTime();
-  const dayTypeLabel = minsk.isWeekend ? 'выходной день' : 'будний день';
-
-  return (
-    `🚌 *Расписание транспорта ЖК «Зелёная Гавань»*\n\n` +
-    `Здесь вы можете посмотреть актуальное расписание автобусов и маршруток, ` +
-    `выбрать конкретную остановку посадки и узнать ближайшие рейсы.\n\n` +
-    `📍 *Доступные маршруты:*\n` +
-    `• 🚌 *200С* — ст. м. Уручье ↔ Зелёная Гавань (скоростной, 12 остановок)\n` +
-    `• 🚌 *200дС* — ст. м. Уручье ↔ Колодищи-2 ↔ Зелёная Гавань\n` +
-    `• 🚐 *1222-ТК* — ст. м. Восток / Могилёвская ↔ Зелёная Гавань\n\n` +
-    `🕒 *Минское время:* ${minsk.timeString} (${minsk.dayName.toLowerCase()}, ${dayTypeLabel})\n\n` +
-    `Выберите действие:`
-  );
-}
-
-// Команды вызова расписания
+// Шаг 1: Выбор транспорта (команда /transport, /bus или кнопка в главном меню)
 transportComposer.command(['transport', 'bus', 'buses', 'raspisanie'], async (ctx) => {
-  await ctx.reply(renderTransportMenuText(), {
+  await ctx.reply('🚌 *Выберите транспорт:*', {
     parse_mode: 'Markdown',
     reply_markup: transportMenuKeyboard(),
   });
 });
 
-// Возврат в меню транспорта через callback
 transportComposer.callbackQuery('transport:menu', async (ctx) => {
   await ctx.answerCallbackQuery();
-  try {
-    await ctx.editMessageText(renderTransportMenuText(), {
-      parse_mode: 'Markdown',
-      reply_markup: transportMenuKeyboard(),
-    });
-  } catch {
-    await ctx.reply(renderTransportMenuText(), {
-      parse_mode: 'Markdown',
-      reply_markup: transportMenuKeyboard(),
-    });
-  }
-});
-
-// Экран "Ближайшие рейсы прямо сейчас"
-transportComposer.callbackQuery('transport:next', async (ctx) => {
-  await ctx.answerCallbackQuery({ text: 'Обновлено!' });
-  const summary = getAllNextDepartures();
-  const minsk = summary.now;
-  const dayType = minsk.isWeekend ? 'выходной' : 'будний день';
-
-  const formatList = (items) => {
-    return items.map((item) => {
-      let depText = '';
-      if (item.nextDepartures.length > 0) {
-        depText = item.nextDepartures
-          .map((d) => `*${d.time}* (${d.label})`)
-          .join(', ');
-      } else if (item.allTimesCount === 0) {
-        depText = '_сегодня нет рейсов_';
-      } else {
-        depText = item.intervalInfo ? `_${item.intervalInfo}_` : '_рейсов на сегодня больше нет_';
-      }
-
-      return `• ${item.routeBadge} *${item.routeNumber}* (от «${item.fromStation}»): ${depText}`;
-    }).join('\n');
-  };
-
-  const text = (
-    `⚡ *Ближайшие рейсы транспорта прямо сейчас*\n` +
-    `🕒 *Время:* ${minsk.timeString} (${minsk.dayName}, ${dayType})\n\n` +
-    `🏙 *В Минск (из Зелёной Гавани):*\n` +
-    `${formatList(summary.to_minsk)}\n\n` +
-    `🏡 *В Зелёную Гавань (из Минска):*\n` +
-    `${formatList(summary.to_gavan)}\n\n` +
-    `_Нажмите на любой маршрут ниже, чтобы выбрать остановку и открыть полное поминутное расписание._`
-  );
-
+  const text = '🚌 *Выберите транспорт:*';
   try {
     await ctx.editMessageText(text, {
       parse_mode: 'Markdown',
-      reply_markup: nextDeparturesKeyboard(),
+      reply_markup: transportMenuKeyboard(),
     });
   } catch {
     await ctx.reply(text, {
       parse_mode: 'Markdown',
-      reply_markup: nextDeparturesKeyboard(),
+      reply_markup: transportMenuKeyboard(),
     });
   }
 });
 
-// Выбор направления движения маршрута
+// Шаг 2: Выбор направления движения
 transportComposer.callbackQuery(/^transport:route:([a-z0-9]+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
   const routeId = ctx.match[1];
@@ -117,16 +46,12 @@ transportComposer.callbackQuery(/^transport:route:([a-z0-9]+)$/, async (ctx) => 
   const route = schedule.routes[routeId];
 
   if (!route) {
-    await ctx.reply('⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
-    return;
+    return ctx.reply('⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
   }
 
   const text = (
-    `${route.badge} *${route.title}*\n\n` +
-    `🛣 *Маршрут:* ${route.routeDescription}\n` +
-    `🏢 *Перевозчик:* ${route.operator}\n` +
-    `💳 *Оплата:* ${route.fare}\n\n` +
-    `Куда планируете ехать? Выберите направление:`
+    `${route.badge} *${route.title}*\n` +
+    `Выберите направление движения:`
   );
 
   try {
@@ -142,48 +67,45 @@ transportComposer.callbackQuery(/^transport:route:([a-z0-9]+)$/, async (ctx) => 
   }
 });
 
-// Экран выбора остановки посадки
-transportComposer.callbackQuery(/^transport:stops:([a-z0-9]+):(to_minsk|to_gavan):([a-z0-9_]+):(weekdays|weekends)$/, async (ctx) => {
+// Шаг 3: Выбор остановки посадки
+transportComposer.callbackQuery(/^transport:dir:([a-z0-9]+):(to_minsk|to_gavan)(?::(weekdays|weekends|auto))?$/, async (ctx) => {
   await ctx.answerCallbackQuery();
   const routeId = ctx.match[1];
   const directionId = ctx.match[2];
-  const currentStopId = ctx.match[3];
-  const dayType = ctx.match[4];
+  const dayType = ctx.match[3] || 'auto';
 
   const schedule = getTransportSchedule();
   const route = schedule.routes[routeId];
   const dir = route?.directions?.[directionId];
 
   if (!route || !dir) {
-    await ctx.reply('⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
-    return;
+    return ctx.reply('⚠️ Направление не найдено.', { reply_markup: transportMenuKeyboard() });
   }
 
   const text = (
-    `🚏 *Выбор остановки посадки*\n` +
-    `${route.badge} *${route.title}* (${dir.title})\n\n` +
-    `Выберите нужную остановку из списка — расписание и ближайшие рейсы пересчитаются именно для неё:`
+    `${route.badge} *${route.number}* → *${dir.title}*\n` +
+    `Выберите вашу остановку посадки:`
   );
 
   try {
     await ctx.editMessageText(text, {
       parse_mode: 'Markdown',
-      reply_markup: stopsSelectionKeyboard(routeId, directionId, currentStopId, dayType),
+      reply_markup: stopsSelectionKeyboard(routeId, directionId, null, dayType),
     });
   } catch {
     await ctx.reply(text, {
       parse_mode: 'Markdown',
-      reply_markup: stopsSelectionKeyboard(routeId, directionId, currentStopId, dayType),
+      reply_markup: stopsSelectionKeyboard(routeId, directionId, null, dayType),
     });
   }
 });
 
-// Просмотр подробного расписания конкретного маршрута для выбранной остановки
+// Итоговый экран: Расписание для конкретной выбранной остановки
 transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan):([a-z0-9_]+):(auto|weekdays|weekends)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
   const routeId = ctx.match[1];
   const directionId = ctx.match[2];
-  let stopId = ctx.match[3];
+  const stopId = ctx.match[3];
   let dayType = ctx.match[4];
 
   const minsk = getMinskTime();
@@ -194,20 +116,12 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
   const schedule = getTransportSchedule();
   const route = schedule.routes[routeId];
   if (!route) {
-    await ctx.reply('⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
-    return;
+    return ctx.reply('⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
   }
 
   const direction = route.directions[directionId];
   if (!direction) {
-    await ctx.reply('⚠️ Направление не найдено.', { reply_markup: transportMenuKeyboard() });
-    return;
-  }
-
-  // Если stopId === 'default', подставляем остановку по умолчанию
-  if (stopId === 'default') {
-    const defStop = getDefaultStop(routeId, directionId);
-    stopId = defStop ? defStop.id : 'default';
+    return ctx.reply('⚠️ Направление не найдено.', { reply_markup: transportMenuKeyboard() });
   }
 
   const { stop, times } = getStopSchedule(routeId, directionId, stopId, dayType);
@@ -231,27 +145,22 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
     scheduleText = '_В этот день рейсов по данному маршруту нет._';
   }
 
-  // Блок ближайших рейсов с выбранной остановки
+  // Блок ближайших рейсов
   let nextBlock = '';
   if (isViewingToday) {
     if (nextDepartures.length > 0) {
       const list = nextDepartures.map((d) => `• *${d.time}* (${d.label})`).join('\n');
-      nextBlock = `⚡ *Ближайшие отправления с ост. «${stopName}»:*\n${list}\n\n`;
+      nextBlock = `⚡ *Ближайшие отправления:*\n${list}\n\n`;
     } else if (times.length > 0) {
       nextBlock = `⚡ *Ближайшие отправления:* рейсов на сегодня больше нет\n\n`;
     }
   }
 
-  const noteBlock = direction.note ? `ℹ️ _${direction.note}_\n\n` : '';
-
   const text = (
-    `${route.badge} *${route.title}*\n` +
-    `*${direction.title}*\n\n` +
-    `🚏 *Остановка посадки:* *${stopName}*\n` +
-    `🏁 *Конечная:* ${direction.toStation}\n\n` +
-    noteBlock +
+    `${route.badge} *${route.number}* → *${direction.title}*\n` +
+    `🚏 Остановка: *${stopName}*\n\n` +
     nextBlock +
-    `*${dayTitle} (от «${stopName}»):*\n` +
+    `*${dayTitle}:*\n` +
     `${scheduleText}\n\n` +
     `💳 *Проезд:* ${route.fare}\n` +
     `🕒 *Время сейчас:* ${minsk.timeString} (Минск)`
@@ -260,12 +169,12 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
   try {
     await ctx.editMessageText(text, {
       parse_mode: 'Markdown',
-      reply_markup: routeScheduleKeyboard(routeId, directionId, dayType, stop?.id || stopId, route.yandexMapsUrl),
+      reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType, route.yandexMapsUrl),
     });
   } catch {
     await ctx.reply(text, {
       parse_mode: 'Markdown',
-      reply_markup: routeScheduleKeyboard(routeId, directionId, dayType, stop?.id || stopId, route.yandexMapsUrl),
+      reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType, route.yandexMapsUrl),
     });
   }
 });
