@@ -11,12 +11,15 @@ import {
   stopsSelectionKeyboard,
   scheduleKeyboard,
 } from '../keyboards/transport.js';
+import { renderScreen } from '../utils/cleanChat.js';
 
 export const transportComposer = new Composer();
 
-// Шаг 1: Выбор транспорта (команда /transport, /bus или кнопка в главном меню)
+const MENU_TEXT = '🚌 *Выберите транспорт:*';
+
+// Шаг 1: Выбор транспорта (команда /transport, /bus или возврат в меню)
 transportComposer.command(['transport', 'bus', 'buses', 'raspisanie'], async (ctx) => {
-  await ctx.reply('🚌 *Выберите транспорт:*', {
+  await renderScreen(ctx, MENU_TEXT, {
     parse_mode: 'Markdown',
     reply_markup: transportMenuKeyboard(),
   });
@@ -24,18 +27,10 @@ transportComposer.command(['transport', 'bus', 'buses', 'raspisanie'], async (ct
 
 transportComposer.callbackQuery('transport:menu', async (ctx) => {
   await ctx.answerCallbackQuery();
-  const text = '🚌 *Выберите транспорт:*';
-  try {
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      reply_markup: transportMenuKeyboard(),
-    });
-  } catch {
-    await ctx.reply(text, {
-      parse_mode: 'Markdown',
-      reply_markup: transportMenuKeyboard(),
-    });
-  }
+  await renderScreen(ctx, MENU_TEXT, {
+    parse_mode: 'Markdown',
+    reply_markup: transportMenuKeyboard(),
+  });
 });
 
 // Шаг 2: Выбор направления движения
@@ -46,7 +41,7 @@ transportComposer.callbackQuery(/^transport:route:([a-z0-9]+)$/, async (ctx) => 
   const route = schedule.routes[routeId];
 
   if (!route) {
-    return ctx.reply('⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
+    return renderScreen(ctx, '⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
   }
 
   const text = (
@@ -54,17 +49,10 @@ transportComposer.callbackQuery(/^transport:route:([a-z0-9]+)$/, async (ctx) => 
     `Выберите направление движения:`
   );
 
-  try {
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      reply_markup: routeDirectionKeyboard(routeId),
-    });
-  } catch {
-    await ctx.reply(text, {
-      parse_mode: 'Markdown',
-      reply_markup: routeDirectionKeyboard(routeId),
-    });
-  }
+  await renderScreen(ctx, text, {
+    parse_mode: 'Markdown',
+    reply_markup: routeDirectionKeyboard(routeId),
+  });
 });
 
 // Шаг 3: Выбор остановки посадки
@@ -79,7 +67,7 @@ transportComposer.callbackQuery(/^transport:dir:([a-z0-9]+):(to_minsk|to_gavan)(
   const dir = route?.directions?.[directionId];
 
   if (!route || !dir) {
-    return ctx.reply('⚠️ Направление не найдено.', { reply_markup: transportMenuKeyboard() });
+    return renderScreen(ctx, '⚠️ Направление не найдено.', { reply_markup: transportMenuKeyboard() });
   }
 
   const text = (
@@ -87,17 +75,10 @@ transportComposer.callbackQuery(/^transport:dir:([a-z0-9]+):(to_minsk|to_gavan)(
     `Выберите вашу остановку посадки:`
   );
 
-  try {
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      reply_markup: stopsSelectionKeyboard(routeId, directionId, null, dayType),
-    });
-  } catch {
-    await ctx.reply(text, {
-      parse_mode: 'Markdown',
-      reply_markup: stopsSelectionKeyboard(routeId, directionId, null, dayType),
-    });
-  }
+  await renderScreen(ctx, text, {
+    parse_mode: 'Markdown',
+    reply_markup: stopsSelectionKeyboard(routeId, directionId, null, dayType),
+  });
 });
 
 // Итоговый экран: Расписание для конкретной выбранной остановки
@@ -116,12 +97,12 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
   const schedule = getTransportSchedule();
   const route = schedule.routes[routeId];
   if (!route) {
-    return ctx.reply('⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
+    return renderScreen(ctx, '⚠️ Маршрут не найден.', { reply_markup: transportMenuKeyboard() });
   }
 
   const direction = route.directions[directionId];
   if (!direction) {
-    return ctx.reply('⚠️ Направление не найдено.', { reply_markup: transportMenuKeyboard() });
+    return renderScreen(ctx, '⚠️ Направление не найдено.', { reply_markup: transportMenuKeyboard() });
   }
 
   const { stop, times } = getStopSchedule(routeId, directionId, stopId, dayType);
@@ -166,15 +147,8 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
     `🕒 *Время сейчас:* ${minsk.timeString} (Минск)`
   );
 
-  try {
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType, route.yandexMapsUrl),
-    });
-  } catch {
-    await ctx.reply(text, {
-      parse_mode: 'Markdown',
-      reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType, route.yandexMapsUrl),
-    });
-  }
+  await renderScreen(ctx, text, {
+    parse_mode: 'Markdown',
+    reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType, route.yandexMapsUrl),
+  });
 });

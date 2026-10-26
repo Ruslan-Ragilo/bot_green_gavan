@@ -83,12 +83,10 @@ export function createBot() {
 // Регистрация быстрых команд в кнопке «Меню» Telegram (возле поля ввода)
 export async function setupBotCommands(bot) {
   try {
-    // 1. Команды для обычных пользователей в личных сообщениях
+    // 1. Команды для обычных пользователей в личных сообщениях (транспорт)
     await bot.api.setMyCommands([
-      { command: 'start', description: '🏠 Главное меню' },
-      { command: 'transport', description: '🚌 Расписание транспорта' },
-      { command: 'orders', description: '📋 Мои заказы' },
-      { command: 'cart', description: '🛒 Корзина' },
+      { command: 'start', description: '🚌 Расписание транспорта' },
+      { command: 'transport', description: '🚌 Выбрать транспорт' },
     ], {
       scope: { type: 'all_private_chats' },
     });
@@ -111,12 +109,9 @@ export async function setupBotCommands(bot) {
       try {
         await bot.api.setMyCommands([
           { command: 'admin', description: '👑 Панель администратора' },
-          { command: 'start', description: '🏠 Главное меню' },
-          { command: 'transport', description: '🚌 Расписание транспорта' },
-          { command: 'order', description: '🔍 Найти заказ по коду' },
+          { command: 'start', description: '🚌 Расписание транспорта' },
+          { command: 'transport', description: '🚌 Выбрать транспорт' },
           { command: 'broadcast', description: '📢 Рассылка жильцам ЖК' },
-          { command: 'orders', description: '📋 Мои заказы' },
-          { command: 'cart', description: '🛒 Корзина' },
         ], {
           scope: { type: 'chat', chat_id: adminId },
         });
