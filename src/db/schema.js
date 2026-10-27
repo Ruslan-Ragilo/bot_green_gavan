@@ -12,6 +12,13 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Активное сообщение экрана жильца (гарантия одного окна и защита от дублей)
+CREATE TABLE IF NOT EXISTS user_screens (
+  user_id INTEGER PRIMARY KEY,
+  message_id INTEGER NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Заведения ЖК
 CREATE TABLE IF NOT EXISTS places (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
