@@ -496,7 +496,7 @@ adminComposer.callbackQuery('admin:update_transport', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: '⛔ Доступ запрещён', show_alert: true });
   await ctx.answerCallbackQuery({ text: 'Проверяем расписание на портале...' });
 
-  const waitMsg = await ctx.reply('⏳ *Выполняется синхронизация расписания с порталом Колодищи/Минсктранс...*', {
+  const waitMsg = await ctx.reply('⏳ *Выполняется синхронизация расписания с официальным API kogda.by (Минсктранс)...*', {
     parse_mode: 'Markdown',
   });
 
