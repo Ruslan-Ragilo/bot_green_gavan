@@ -368,7 +368,15 @@ export function getStopSchedule(routeId, directionId, stopId, dayType) {
   const stop = stops.find((s) => s.id === stopId) || getDefaultStop(routeId, directionId);
   if (!stop) return { stop: null, times: [] };
 
-  // Если направление от ДС Уручье-2 (to_gavan) — берем базовые времена от ДС Уручье-2
+  // 1. Если для конкретной остановки сохранен точный массив времен — используем его напрямую
+  if (dayType === 'weekends' && Array.isArray(stop.weekends) && stop.weekends.length > 0) {
+    return { stop, times: stop.weekends };
+  }
+  if (dayType === 'weekdays' && Array.isArray(stop.weekdays) && stop.weekdays.length > 0) {
+    return { stop, times: stop.weekdays };
+  }
+
+  // 2. Резервный расчет по смещению от базовой станции
   let baseTimes = [];
   if (dir.baseStationId === 'ds_uruchie_2' && dir.baseWeekdays) {
     baseTimes = dayType === 'weekends' ? (dir.baseWeekends || []) : (dir.baseWeekdays || []);
@@ -376,8 +384,7 @@ export function getStopSchedule(routeId, directionId, stopId, dayType) {
     baseTimes = dayType === 'weekends' ? (dir.weekends || []) : (dir.weekdays || []);
   }
 
-  // Смещаем базовое время на минуты до выбранной остановки
-  const times = baseTimes.map((t) => addMinutesToTime(t, stop.offsetMinutes));
+  const times = baseTimes.map((t) => addMinutesToTime(t, stop.offsetMinutes || 0));
 
   return {
     stop,
