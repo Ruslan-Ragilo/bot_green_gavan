@@ -5,69 +5,69 @@ let nightlyTimeoutId = null;
 let nightlyIntervalId = null;
 
 /**
- * Нормализация времени в формат 'HH:MM' (например '6:33' -> '06:33')
+ * Получение даты в формате YYYY-MM-DD для ближайшего буднего дня и ближайшей субботы
  */
-function normalizeTime(timeStr) {
-  const parts = timeStr.trim().split(':');
-  if (parts.length !== 2) return timeStr.trim();
-  const h = parts[0].padStart(2, '0');
-  const m = parts[1].padStart(2, '0');
-  return `${h}:${m}`;
+function getTargetDates() {
+  const now = new Date();
+  // Минское время UTC+3
+  const minskNow = new Date(now.getTime() + (3 * 60 + now.getTimezoneOffset()) * 60000);
+
+  // Ищем ближайший будний день (1 = Пн, ..., 5 = Пт)
+  const weekday = new Date(minskNow);
+  while (weekday.getDay() === 0 || weekday.getDay() === 6) {
+    weekday.setDate(weekday.getDate() + 1);
+  }
+
+  // Ищем ближайшую субботу (6 = Сб)
+  const saturday = new Date(minskNow);
+  while (saturday.getDay() !== 6) {
+    saturday.setDate(saturday.getDate() + 1);
+  }
+
+  const format = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  return {
+    weekdayDate: format(weekday),
+    weekendDate: format(saturday),
+  };
 }
 
 /**
- * Извлечение списка времен отправлений из HTML фрагмента таблицы
+ * Запрос актуального расписания с официального API kogda.by
  */
-function extractTimesFromHtml(htmlChunk) {
-  if (!htmlChunk) return [];
-  const times = [];
-  const regex = /<td>\s*(\d{1,2}:\d{2})\s*<\/td>/g;
-  let match;
-  while ((match = regex.exec(htmlChunk)) !== null) {
-    times.push(normalizeTime(match[1]));
+async function fetchKogdaTimetable(route, direction, busStop, date) {
+  const params = new URLSearchParams({
+    city: 'minsk',
+    transport: 'autobus',
+    route,
+    direction,
+    busStop,
+    date,
+  });
+
+  const res = await fetch(`https://kogda.by/api/getTimetable?${params}`, {
+    signal: AbortSignal.timeout(10000),
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   }
-  return Array.from(new Set(times)).sort();
-}
 
-/**
- * Загрузка и парсинг таблицы расписания с сайта kolodischi.by
- */
-async function fetchTableTimes(url, tableId) {
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(12000),
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    }
-
-    const html = await res.text();
-    const tableRegex = new RegExp(`<table id="${tableId}"[^>]*>([\\s\\S]*?)<\\/table>`, 'i');
-    const tableMatch = html.match(tableRegex);
-
-    if (!tableMatch) {
-      console.warn(`[Transport Scraper] Таблица ${tableId} не найдена на ${url}`);
-      return null;
-    }
-
-    const tableHtml = tableMatch[1];
-    const parts = tableHtml.split(/По выходным/i);
-    const weekdayPart = parts[0] || '';
-    const weekendPart = parts[1] || '';
-
-    return {
-      weekdays: extractTimesFromHtml(weekdayPart),
-      weekends: extractTimesFromHtml(weekendPart),
-    };
-  } catch (err) {
-    console.error(`[Transport Scraper Error] Не удалось загрузить ${url} (${tableId}):`, err.message);
-    return null;
+  const data = await res.json();
+  if (data && data.status === 200 && Array.isArray(data.timetable)) {
+    return data.timetable;
   }
+  return [];
 }
 
 /**
@@ -84,79 +84,82 @@ function areTimeArraysEqual(arr1 = [], arr2 = []) {
  * Основная процедура проверки и актуализации расписания
  */
 export async function checkAndUpdateTransportSchedules(bot = null) {
-  console.log('[Transport Updater] Запуск ночной проверки расписания автобусов...');
+  console.log('[Transport Updater] Запуск проверки расписания через kogda.by API...');
   const currentSchedule = getTransportSchedule();
   const changes = [];
+  const { weekdayDate, weekendDate } = getTargetDates();
 
   try {
-    // 1. Проверяем отправления ИЗ Зелёной Гавани в Минск
-    const urlFromGavan = 'https://kolodischi.by/raspisanie-avtobusov/bulvar-zelenaya-gavan';
-    const [scraped200cFrom, scraped200dFrom] = await Promise.all([
-      fetchTableTimes(urlFromGavan, 'bus_200с'),
-      fetchTableTimes(urlFromGavan, 'bus_200д'),
+    // 1. Автобус 200С: В Минск от «Бульвар Зелёная Гавань»
+    const [cToMinskWk, cToMinskWknd] = await Promise.all([
+      fetchKogdaTimetable('200С', 'Бульвар Зелёная Гавань - ДС Уручье-2', 'Бульвар Зелёная Гавань', weekdayDate),
+      fetchKogdaTimetable('200С', 'Бульвар Зелёная Гавань - ДС Уручье-2', 'Бульвар Зелёная Гавань', weekendDate),
     ]);
 
-    // Обновление 200С (из Гавани)
-    if (scraped200cFrom && scraped200cFrom.weekdays.length > 0) {
-      const cur = currentSchedule.routes['200c'].directions.to_minsk;
-      // Защита от устаревшей таблицы kolodischi.by со сдвигом +4 мин (06:33 вместо официального 06:29)
-      if (scraped200cFrom.weekdays.includes('06:33') && cur.weekdays.includes('06:29')) {
-        console.log('[Transport Scraper] На kolodischi.by устаревшая таблица со сдвигом +4 мин (06:33). Пропуск перезаписи.');
-      } else if (!areTimeArraysEqual(cur.weekdays, scraped200cFrom.weekdays)) {
-        changes.push(`🚌 *200С (в Минск, будни)*: было [${cur.weekdays.join(', ')}], стало [${scraped200cFrom.weekdays.join(', ')}]`);
-        cur.weekdays = scraped200cFrom.weekdays;
+    const route200cToMinsk = currentSchedule.routes['200c']?.directions?.to_minsk;
+    if (route200cToMinsk) {
+      if (cToMinskWk.length > 0 && !areTimeArraysEqual(route200cToMinsk.weekdays, cToMinskWk)) {
+        changes.push(`🚌 *200С (в Минск, будни)*: было [${route200cToMinsk.weekdays.join(', ')}], стало [${cToMinskWk.join(', ')}]`);
+        route200cToMinsk.weekdays = cToMinskWk;
       }
-      if (!areTimeArraysEqual(cur.weekends, scraped200cFrom.weekends)) {
-        changes.push(`🚌 *200С (в Минск, выходные)*: было [${cur.weekends.join(', ')}], стало [${scraped200cFrom.weekends.join(', ')}]`);
-        cur.weekends = scraped200cFrom.weekends;
+      if (cToMinskWknd.length > 0 && !areTimeArraysEqual(route200cToMinsk.weekends, cToMinskWknd)) {
+        changes.push(`🚌 *200С (в Минск, выходные)*: было [${route200cToMinsk.weekends.join(', ')}], стало [${cToMinskWknd.join(', ')}]`);
+        route200cToMinsk.weekends = cToMinskWknd;
       }
     }
 
-    // Обновление 200дС (из Гавани)
-    if (scraped200dFrom && scraped200dFrom.weekdays.length > 0) {
-      const cur = currentSchedule.routes['200dc'].directions.to_minsk;
-      if (!areTimeArraysEqual(cur.weekdays, scraped200dFrom.weekdays)) {
-        changes.push(`🚌 *200дС (в Минск, будни)*: было [${cur.weekdays.join(', ')}], стало [${scraped200dFrom.weekdays.join(', ')}]`);
-        cur.weekdays = scraped200dFrom.weekdays;
-      }
-      if (!areTimeArraysEqual(cur.weekends, scraped200dFrom.weekends)) {
-        cur.weekends = scraped200dFrom.weekends;
-      }
-    }
-
-    // 2. Проверяем отправления В Зелёную Гавань из Минска (ст. м. Уручье)
-    const urlToGavan = 'https://kolodischi.by/raspisanie-avtobusov/metro-uruche';
-    const [scraped200cTo, scraped200dTo] = await Promise.all([
-      fetchTableTimes(urlToGavan, 'bus_200с'),
-      fetchTableTimes(urlToGavan, 'bus_200д'),
+    // 2. Автобус 200С: В Зелёную Гавань от ДС «Уручье-2»
+    const [cToGavanWk, cToGavanWknd] = await Promise.all([
+      fetchKogdaTimetable('200С', 'ДС Уручье-2 - Бульвар Зелёная Гавань', 'ДС Уручье-2', weekdayDate),
+      fetchKogdaTimetable('200С', 'ДС Уручье-2 - Бульвар Зелёная Гавань', 'ДС Уручье-2', weekendDate),
     ]);
 
-    // Обновление 200С (в Гавань)
-    if (scraped200cTo && scraped200cTo.weekdays.length > 0) {
-      const cur = currentSchedule.routes['200c'].directions.to_gavan;
-      if (!areTimeArraysEqual(cur.weekdays, scraped200cTo.weekdays)) {
-        changes.push(`🚌 *200С (в Гавань, будни)*: было [${cur.weekdays.join(', ')}], стало [${scraped200cTo.weekdays.join(', ')}]`);
-        cur.weekdays = scraped200cTo.weekdays;
+    const route200cToGavan = currentSchedule.routes['200c']?.directions?.to_gavan;
+    if (route200cToGavan) {
+      if (cToGavanWk.length > 0 && !areTimeArraysEqual(route200cToGavan.baseWeekdays, cToGavanWk)) {
+        changes.push(`🚌 *200С (в Гавань, будни)*: было [${route200cToGavan.baseWeekdays.join(', ')}], стало [${cToGavanWk.join(', ')}]`);
+        route200cToGavan.baseWeekdays = cToGavanWk;
+        route200cToGavan.weekdays = cToGavanWk.map(t => {
+          const [h, m] = t.split(':').map(Number);
+          const total = h * 60 + m + 7;
+          return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+        });
       }
-      if (!areTimeArraysEqual(cur.weekends, scraped200cTo.weekends)) {
-        changes.push(`🚌 *200С (в Гавань, выходные)*: было [${cur.weekends.join(', ')}], стало [${scraped200cTo.weekends.join(', ')}]`);
-        cur.weekends = scraped200cTo.weekends;
-      }
-    }
-
-    // Обновление 200дС (в Гавань)
-    if (scraped200dTo && scraped200dTo.weekdays.length > 0) {
-      const cur = currentSchedule.routes['200dc'].directions.to_gavan;
-      if (!areTimeArraysEqual(cur.weekdays, scraped200dTo.weekdays)) {
-        changes.push(`🚌 *200дС (в Гавань, будни)*: было [${cur.weekdays.join(', ')}], стало [${scraped200dTo.weekdays.join(', ')}]`);
-        cur.weekdays = scraped200dTo.weekdays;
-      }
-      if (!areTimeArraysEqual(cur.weekends, scraped200dTo.weekends)) {
-        cur.weekends = scraped200dTo.weekends;
+      if (cToGavanWknd.length > 0 && !areTimeArraysEqual(route200cToGavan.baseWeekends, cToGavanWknd)) {
+        changes.push(`🚌 *200С (в Гавань, выходные)*: было [${route200cToGavan.baseWeekends.join(', ')}], стало [${cToGavanWknd.join(', ')}]`);
+        route200cToGavan.baseWeekends = cToGavanWknd;
+        route200cToGavan.weekends = cToGavanWknd.map(t => {
+          const [h, m] = t.split(':').map(Number);
+          const total = h * 60 + m + 7;
+          return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+        });
       }
     }
 
-    // Если есть изменения — сохраняем и уведомляем администраторов
+    // 3. Автобус 200дС (200Д): В Минск и в Гавань (только будни)
+    const [dToMinskWk, dToGavanWk] = await Promise.all([
+      fetchKogdaTimetable('200Д', 'Бульвар Зелёная Гавань - ДС Уручье-2', 'Бульвар Зелёная Гавань', weekdayDate),
+      fetchKogdaTimetable('200Д', 'ДС Уручье-2 - Бульвар Зелёная Гавань', 'ДС Уручье-2', weekdayDate),
+    ]);
+
+    const route200dToMinsk = currentSchedule.routes['200dc']?.directions?.to_minsk;
+    if (route200dToMinsk && dToMinskWk.length > 0 && !areTimeArraysEqual(route200dToMinsk.weekdays, dToMinskWk)) {
+      changes.push(`🚌 *200дС (в Минск, будни)*: было [${route200dToMinsk.weekdays.join(', ')}], стало [${dToMinskWk.join(', ')}]`);
+      route200dToMinsk.weekdays = dToMinskWk;
+    }
+
+    const route200dToGavan = currentSchedule.routes['200dc']?.directions?.to_gavan;
+    if (route200dToGavan && dToGavanWk.length > 0 && !areTimeArraysEqual(route200dToGavan.baseWeekdays, dToGavanWk)) {
+      changes.push(`🚌 *200дС (в Гавань, будни)*: было [${route200dToGavan.baseWeekdays.join(', ')}], стало [${dToGavanWk.join(', ')}]`);
+      route200dToGavan.baseWeekdays = dToGavanWk;
+      route200dToGavan.weekdays = dToGavanWk.map(t => {
+        const [h, m] = t.split(':').map(Number);
+        const total = h * 60 + m + 7;
+        return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+      });
+    }
+
+    // Сохранение изменений
     if (changes.length > 0) {
       saveTransportSchedule(currentSchedule);
       console.log(`[Transport Updater] 🔄 Обнаружены и сохранены изменения (${changes.length}):\n${changes.join('\n')}`);
@@ -164,7 +167,7 @@ export async function checkAndUpdateTransportSchedules(bot = null) {
       if (bot && config.adminIds?.length > 0) {
         const text = (
           `📢 *Автоматическое обновление расписания транспорта!*\n\n` +
-          `Ночной крон обнаружил изменения в графике движения автобусов:\n\n` +
+          `Ночной крон обнаружил изменения в графике движения автобусов на kogda.by:\n\n` +
           changes.join('\n\n') +
           `\n\n_Расписание в боте обновлено автоматически._`
         );
@@ -180,56 +183,52 @@ export async function checkAndUpdateTransportSchedules(bot = null) {
       return { updated: true, changes };
     }
 
-    console.log('[Transport Updater] ✅ Проверка завершена: изменений в расписании нет.');
+    console.log('[Transport Updater] ✅ Проверка завершена: изменений в расписании нет, всё актуально.');
     return { updated: false, changes: [] };
   } catch (err) {
-    console.error('[Transport Updater] Ошибка при ночной проверке расписания:', err);
+    console.error('[Transport Updater] Сбой при проверке расписания:', err.message);
     return { updated: false, error: err.message };
   }
 }
 
 /**
- * Расчет миллисекунд до следующего наступления 04:00 по времени Минска (UTC+3)
- */
-function msUntilNext4AM() {
-  const now = new Date();
-  const minskNow = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Minsk' }));
-
-  const next4AM = new Date(minskNow);
-  next4AM.setHours(4, 0, 0, 0);
-
-  // Если сегодня 04:00 уже прошло — берем завтра
-  if (minskNow.getTime() >= next4AM.getTime()) {
-    next4AM.setDate(next4AM.getDate() + 1);
-  }
-
-  const diffMs = next4AM.getTime() - minskNow.getTime();
-  return diffMs;
-}
-
-/**
- * Запуск ночного планировщика обновления расписания (каждую ночь в 04:00 по Минску)
+ * Запуск планировщика ночной проверки (раз в сутки в 04:00 по Минску)
  */
 export function startTransportUpdaterJob(bot) {
-  if (nightlyTimeoutId || nightlyIntervalId) return;
+  if (nightlyTimeoutId) clearTimeout(nightlyTimeoutId);
+  if (nightlyIntervalId) clearInterval(nightlyIntervalId);
 
-  const msToRun = msUntilNext4AM();
-  const hoursUntil = (msToRun / (1000 * 60 * 60)).toFixed(1);
+  const calculateMsUntil4AM = () => {
+    const now = new Date();
+    const utcHours = now.getUTCHours();
+    const targetUtcHours = 1; // 04:00 по Минску (UTC+3) = 01:00 UTC
 
-  console.log(`[Transport Cron] Ночной крон актуализации расписания запущен. Первый запуск через ~${hoursUntil} ч (в 04:00 по Минску).`);
+    const nextRun = new Date(now);
+    nextRun.setUTCHours(targetUtcHours, 0, 0, 0);
 
-  nightlyTimeoutId = setTimeout(async () => {
-    await checkAndUpdateTransportSchedules(bot);
+    if (utcHours >= targetUtcHours) {
+      nextRun.setUTCDate(nextRun.getUTCDate() + 1);
+    }
 
-    // После первого срабатывания запускаем регулярный цикл раз в 24 часа
-    nightlyIntervalId = setInterval(async () => {
-      await checkAndUpdateTransportSchedules(bot);
+    return nextRun.getTime() - now.getTime();
+  };
+
+  const msUntilNextRun = calculateMsUntil4AM();
+  const hoursUntil = (msUntilNextRun / (1000 * 60 * 60)).toFixed(1);
+  console.log(`🕒 [Transport Updater] Следующая проверка расписания запланирована в 04:00 (через ~${hoursUntil} ч)`);
+
+  nightlyTimeoutId = setTimeout(() => {
+    checkAndUpdateTransportSchedules(bot);
+
+    // После первого срабатывания запускаем раз в 24 часа
+    nightlyIntervalId = setInterval(() => {
+      checkAndUpdateTransportSchedules(bot);
     }, 24 * 60 * 60 * 1000);
-  }, msToRun);
+  }, msUntilNextRun);
 }
 
 /**
- * Остановка планировщика
+ * Остановка планировщика (при graceful shutdown)
  */
 export function stopTransportUpdaterJob() {
   if (nightlyTimeoutId) {
@@ -240,5 +239,4 @@ export function stopTransportUpdaterJob() {
     clearInterval(nightlyIntervalId);
     nightlyIntervalId = null;
   }
-  console.log('[Transport Cron] Ночной крон актуализации расписания остановлен.');
 }

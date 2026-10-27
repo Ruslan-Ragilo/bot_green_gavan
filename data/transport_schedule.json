@@ -31,19 +31,19 @@
             "23:26"
           ],
           "weekends": [
-            "06:33",
-            "07:49",
-            "09:17",
-            "11:05",
-            "12:19",
-            "13:34",
-            "14:53",
-            "16:08",
-            "17:38",
-            "19:29",
-            "20:48",
-            "22:03",
-            "23:18"
+            "06:29",
+            "07:45",
+            "09:13",
+            "11:01",
+            "12:15",
+            "13:30",
+            "14:49",
+            "16:04",
+            "17:34",
+            "19:25",
+            "20:44",
+            "21:59",
+            "23:14"
           ],
           "stops": [
             {
@@ -55,57 +55,57 @@
             {
               "id": "azs",
               "name": "АЗС",
-              "offsetMinutes": 10
+              "offsetMinutes": 14
             },
             {
               "id": "poligon",
               "name": "Полигон",
-              "offsetMinutes": 12
+              "offsetMinutes": 16
             },
             {
               "id": "kech",
               "name": "Героев 120-й дивизии",
-              "offsetMinutes": 16
+              "offsetMinutes": 20
             },
             {
               "id": "sirenevaya",
               "name": "Сиреневая",
-              "offsetMinutes": 17
+              "offsetMinutes": 21
             },
             {
               "id": "rinok_uruchie",
               "name": "Рынок «Уручье-3»",
-              "offsetMinutes": 21
+              "offsetMinutes": 25
             },
             {
               "id": "ostroshitskaya",
               "name": "Острошицкая",
-              "offsetMinutes": 23
+              "offsetMinutes": 27
             },
             {
               "id": "metro_uruchie",
               "name": "ст. м. «Уручье»",
-              "offsetMinutes": 24
+              "offsetMinutes": 28
             },
             {
               "id": "russiyanova",
               "name": "Руссиянова",
-              "offsetMinutes": 26
+              "offsetMinutes": 30
             },
             {
               "id": "pervomaiskii",
               "name": "Универсам «Первомайский»",
-              "offsetMinutes": 28
+              "offsetMinutes": 32
             },
             {
               "id": "tc_uruchie",
               "name": "ТЦ «Уручье»",
-              "offsetMinutes": 30
+              "offsetMinutes": 33
             },
             {
               "id": "ds_uruchie_2",
               "name": "ДС «Уручье-2»",
-              "offsetMinutes": 32
+              "offsetMinutes": 35
             }
           ]
         },
@@ -176,7 +176,7 @@
             {
               "id": "tc_uruchie",
               "name": "ТЦ «Уручье»",
-              "offsetMinutes": 2
+              "offsetMinutes": 3
             },
             {
               "id": "pervomaiskii",
@@ -251,8 +251,8 @@
           "toStation": "ст. м. Уручье / ДС Уручье-2",
           "baseStationId": "zelenaya_gavan",
           "weekdays": [
-            "07:58",
-            "13:13"
+            "07:54",
+            "13:09"
           ],
           "weekends": [],
           "stops": [
