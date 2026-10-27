@@ -99,7 +99,10 @@ export async function checkAndUpdateTransportSchedules(bot = null) {
     // Обновление 200С (из Гавани)
     if (scraped200cFrom && scraped200cFrom.weekdays.length > 0) {
       const cur = currentSchedule.routes['200c'].directions.to_minsk;
-      if (!areTimeArraysEqual(cur.weekdays, scraped200cFrom.weekdays)) {
+      // Защита от устаревшей таблицы kolodischi.by со сдвигом +4 мин (06:33 вместо официального 06:29)
+      if (scraped200cFrom.weekdays.includes('06:33') && cur.weekdays.includes('06:29')) {
+        console.log('[Transport Scraper] На kolodischi.by устаревшая таблица со сдвигом +4 мин (06:33). Пропуск перезаписи.');
+      } else if (!areTimeArraysEqual(cur.weekdays, scraped200cFrom.weekdays)) {
         changes.push(`🚌 *200С (в Минск, будни)*: было [${cur.weekdays.join(', ')}], стало [${scraped200cFrom.weekdays.join(', ')}]`);
         cur.weekdays = scraped200cFrom.weekdays;
       }
