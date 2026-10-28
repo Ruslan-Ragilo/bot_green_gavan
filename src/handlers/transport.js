@@ -149,6 +149,6 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
 
   await renderScreen(ctx, text, {
     parse_mode: 'Markdown',
-    reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType, route.yandexMapsUrl),
+    reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType),
   });
 });

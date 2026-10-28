@@ -45,7 +45,7 @@ export function stopsSelectionKeyboard(routeId, directionId, currentStopId = nul
 /**
  * Экран расписания для выбранной остановки
  */
-export function scheduleKeyboard(routeId, directionId, stopId, currentDayType, yandexMapsUrl = null) {
+export function scheduleKeyboard(routeId, directionId, stopId, currentDayType) {
   const keyboard = new InlineKeyboard();
 
   // 1. Переключение Будни / Выходные
@@ -63,12 +63,7 @@ export function scheduleKeyboard(routeId, directionId, stopId, currentDayType, y
   const oppositeLabel = directionId === 'to_minsk' ? '🔄 В обратную сторону (в Гавань)' : '🔄 В обратную сторону (в Минск)';
   keyboard.text(oppositeLabel, `transport:dir:${routeId}:${oppositeDir}`).row();
 
-  // 4. Онлайн карта
-  if (yandexMapsUrl) {
-    keyboard.url('📍 Яндекс Карты (онлайн GPS)', yandexMapsUrl).row();
-  }
-
-  // 5. Навигация
+  // 4. Навигация
   keyboard.text('🚌 К выбору транспорта', 'transport:menu');
 
   return keyboard;

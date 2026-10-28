@@ -9,7 +9,6 @@
       "routeDescription": "Бульвар Зелёная Гавань ↔ ДС Уручье-2 (через ст. м. «Уручье»)",
       "operator": "ГП «Минсктранс» (городской скоростной)",
       "fare": "Обычный городской тариф (талон / проездной / «Оплати»)",
-      "yandexMapsUrl": "https://yandex.by/maps/157/minsk/?mode=routes&rtext=53.945353%2C27.687823~53.868778%2C27.756285&rtt=mt",
       "directions": {
         "to_minsk": {
           "id": "to_minsk",
@@ -890,7 +889,6 @@
       "routeDescription": "Бульвар Зелёная Гавань ↔ Колодищи-2 ↔ ст. м. «Уручье»",
       "operator": "ГП «Минсктранс» (с заездом в Колодищи-2, только будни)",
       "fare": "Обычный городской тариф (талон / проездной / «Оплати»)",
-      "yandexMapsUrl": "https://yandex.by/maps/157/minsk/?mode=routes&rtext=53.945353%2C27.687823~53.868778%2C27.756285&rtt=mt",
       "directions": {
         "to_minsk": {
           "id": "to_minsk",
@@ -1096,7 +1094,6 @@
       "routeDescription": "ст. м. Восток ↔ ст. м. Могилёвская ↔ Бульвар Зелёная Гавань",
       "operator": "ООО «Удобный транспорт» (коммерческая маршрутка)",
       "fare": "3,00 BYN (оплата водителю наличными)",
-      "yandexMapsUrl": "https://yandex.by/maps/157/minsk/?mode=routes&rtext=53.934484%2C27.651347~53.868778%2C27.756285&rtt=mt",
       "directions": {
         "to_minsk": {
           "id": "to_minsk",
