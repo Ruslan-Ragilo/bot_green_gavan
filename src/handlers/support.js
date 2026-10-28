@@ -1,6 +1,5 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { renderScreen } from '../utils/cleanChat.js';
-import { transportMenuKeyboard } from '../keyboards/transport.js';
 import { config } from '../../config.js';
 
 export const supportComposer = new Composer();
@@ -10,13 +9,13 @@ function supportMenuKeyboard() {
   const creatorUrl = `https://t.me/${config.creatorUsername.replace('@', '')}`;
 
   return new InlineKeyboard()
-    .text('💳 Перевод на карту', 'support:card').row()
+    .text('💳 Пополнить через ЕРИП', 'support:card').row()
     .text('⭐️ Поддержать звёздами (Telegram Stars)', 'support:stars').row()
     .url(`💬 Написать автору (@${config.creatorUsername.replace('@', '')})`, creatorUrl).row()
     .text('◀️ В главное меню', 'menu:main');
 }
 
-// Клавиатура экрана карты
+// Клавиатура экрана ЕРИП
 function supportCardKeyboard() {
   return new InlineKeyboard()
     .text('⭐️ Поддержать звёздами', 'support:stars').row()
@@ -26,12 +25,12 @@ function supportCardKeyboard() {
 // Клавиатура выбора звёзд
 function supportStarsKeyboard() {
   return new InlineKeyboard()
-    .text('⭐️ 25 звёзд (~0.5 $)', 'support:pay_stars:25')
-    .text('⭐️ 50 звёзд (~1.0 $)', 'support:pay_stars:50').row()
-    .text('⭐️ 100 звёзд (~2.0 $)', 'support:pay_stars:100')
-    .text('⭐️ 250 звёзд (~5.0 $)', 'support:pay_stars:250').row()
-    .text('⭐️ 500 звёзд (~10.0 $)', 'support:pay_stars:500').row()
-    .text('💳 Перевод на карту', 'support:card').row()
+    .text('⭐️ 5 (~0.30 BYN)', 'support:pay_stars:5')
+    .text('⭐️ 15 (~1.00 BYN)', 'support:pay_stars:15').row()
+    .text('⭐️ 30 (~2.00 BYN)', 'support:pay_stars:30')
+    .text('⭐️ 50 (~3.30 BYN ☕️)', 'support:pay_stars:50').row()
+    .text('⭐️ 100 (~6.50 BYN)', 'support:pay_stars:100').row()
+    .text('💳 Пополнить через ЕРИП', 'support:card').row()
     .text('◀️ Назад', 'support:menu');
 }
 
@@ -67,22 +66,21 @@ supportComposer.callbackQuery('support:menu', async (ctx) => {
   });
 });
 
-// 3. Экран перевода на карту
+// 3. Экран перевода через ЕРИП
 supportComposer.callbackQuery('support:card', async (ctx) => {
   await ctx.answerCallbackQuery();
 
-  const card = config.donateCard ? `\`${config.donateCard}\`` : '_Номер карты уточняйте у автора_';
-  const phone = config.donatePhone ? `\n📱 *Телефон:* \`${config.donatePhone}\`` : '';
-  const recipient = config.donateRecipient ? `\n👤 *Получатель:* ${config.donateRecipient}` : '';
-
   const text = (
-    `💳 *Поддержка переводом на карту*\n\n` +
-    `Вы можете отправить любую комфортную сумму на оплату сервера и развитие бота:\n\n` +
-    `💳 *Номер карты:* ${card} _(нажмите, чтобы скопировать)_` +
-    phone +
-    recipient +
-    `\n\n💬 *Назначение / сообщение:* «На бота Зелёная Гавань»\n\n` +
-    `Огромное спасибо за вашу поддержку и теплые слова! ❤️`
+    `💳 *Поддержка через ЕРИП (без комиссии)*\n\n` +
+    `В приложении любого белорусского банка перейдите:\n\n` +
+    `📍 *Система «Расчет» (ЕРИП)*\n` +
+    `  └ 🏦 *Банковские, финансовые услуги*\n` +
+    `      └ 🏛 *Банки, НКФО*\n` +
+    `          └ 🟡 *БСБ Банк*\n` +
+    `              └ 📥 *Пополнение счета*\n\n` +
+    `📱 *Номер телефона:* \`375292254552\` _(нажмите для копирования)_\n` +
+    `👤 *Получатель:* Р****о Р.В.\n\n` +
+    `Подойдёт любая комфортная сумма на оплату сервера и развитие бота. Спасибо за поддержку! ❤️`
   );
 
   await renderScreen(ctx, text, {
@@ -98,7 +96,7 @@ supportComposer.callbackQuery('support:stars', async (ctx) => {
   const text = (
     `⭐️ *Поддержка звёздами Telegram (Telegram Stars)*\n\n` +
     `Звёзды списываются прямо с вашего баланса Telegram в 1 клик.\n\n` +
-    `Выберите количество звёзд для поддержки бота:`
+    `Выберите комфортное количество звёзд:`
   );
 
   await renderScreen(ctx, text, {
@@ -109,7 +107,7 @@ supportComposer.callbackQuery('support:stars', async (ctx) => {
 
 // 5. Выставление инвойса на оплату звёздами
 supportComposer.callbackQuery(/^support:pay_stars:(\d+)$/, async (ctx) => {
-  const starsCount = Number(ctx.match[1]) || 50;
+  const starsCount = Number(ctx.match[1]) || 15;
   await ctx.answerCallbackQuery();
 
   try {
@@ -123,10 +121,10 @@ supportComposer.callbackQuery(/^support:pay_stars:(\d+)$/, async (ctx) => {
   } catch (err) {
     console.error('[Support] Ошибка отправки Stars-инвойса:', err.message);
     await ctx.reply(
-      '⚠️ Не удалось сформировать счёт на оплату звёздами. Попробуйте перевод на карту или напишите автору.',
+      '⚠️ Не удалось сформировать счёт на оплату звёздами. Попробуйте ЕРИП или напишите автору.',
       {
         reply_markup: new InlineKeyboard()
-          .text('💳 Перевод на карту', 'support:card').row()
+          .text('💳 Пополнить через ЕРИП', 'support:card').row()
           .text('◀️ Назад в меню', 'support:menu'),
       }
     );
