@@ -8,6 +8,7 @@ import { staffComposer } from './handlers/staff.js';
 import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 import { transportComposer } from './handlers/transport.js';
+import { supportComposer } from './handlers/support.js';
 
 export function createBot() {
   const botOptions = {
@@ -72,6 +73,7 @@ export function createBot() {
   bot.use(setupComposer);
   bot.use(startComposer);
   bot.use(transportComposer);
+  bot.use(supportComposer);
   bot.use(catalogComposer);
   bot.use(cartComposer);
   bot.use(ordersComposer);
@@ -87,6 +89,7 @@ export async function setupBotCommands(bot) {
     await bot.api.setMyCommands([
       { command: 'start', description: '🚌 Расписание транспорта' },
       { command: 'transport', description: '🚌 Выбрать транспорт' },
+      { command: 'support', description: '❤️ Поддержка проекта и связь' },
     ], {
       scope: { type: 'all_private_chats' },
     });

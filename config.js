@@ -27,6 +27,12 @@ export const config = {
     .split(',')
     .map(id => Number(id.trim()))
     .filter(Boolean),
+
+  // Реквизиты для добровольной поддержки проекта и контакты
+  donateCard: process.env.DONATE_CARD || '',
+  donatePhone: process.env.DONATE_PHONE || '',
+  donateRecipient: process.env.DONATE_RECIPIENT || 'Руслан Р.',
+  creatorUsername: process.env.CREATOR_USERNAME || 'RuslanR93',
 };
 
 // Проверка, является ли пользователь суперадминистратором бота

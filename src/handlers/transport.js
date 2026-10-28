@@ -143,8 +143,7 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
     nextBlock +
     `*${dayTitle}:*\n` +
     `${scheduleText}\n\n` +
-    `💳 *Проезд:* ${route.fare}\n` +
-    `🕒 *Время сейчас:* ${minsk.timeString} (Минск)`
+    `💳 *Проезд:* ${route.fare}`
   );
 
   await renderScreen(ctx, text, {
