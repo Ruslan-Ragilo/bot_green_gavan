@@ -53,3 +53,35 @@ export function getAllUserIds() {
   return stmt.all().map(r => r.telegram_id);
 }
 
+// Получение закрепленного расписания пользователя
+export function getUserPin(userId) {
+  try {
+    const stmt = db.prepare('SELECT * FROM user_pins WHERE user_id = ?');
+    return stmt.get(userId) || null;
+  } catch {
+    return null;
+  }
+}
+
+// Сохранение закрепленного расписания
+export function setUserPin(userId, messageId, routeId, directionId, stopId) {
+  const stmt = db.prepare(`
+    INSERT INTO user_pins (user_id, message_id, route_id, direction_id, stop_id, created_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET
+      message_id = excluded.message_id,
+      route_id = excluded.route_id,
+      direction_id = excluded.direction_id,
+      stop_id = excluded.stop_id,
+      created_at = excluded.created_at
+  `);
+  return stmt.run(userId, messageId, routeId, directionId, stopId);
+}
+
+// Удаление закрепленного расписания
+export function deleteUserPin(userId) {
+  const stmt = db.prepare('DELETE FROM user_pins WHERE user_id = ?');
+  return stmt.run(userId);
+}
+
+

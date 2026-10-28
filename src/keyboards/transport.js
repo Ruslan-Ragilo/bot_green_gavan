@@ -46,7 +46,7 @@ export function stopsSelectionKeyboard(routeId, directionId, currentStopId = nul
 /**
  * Экран расписания для выбранной остановки
  */
-export function scheduleKeyboard(routeId, directionId, stopId, currentDayType) {
+export function scheduleKeyboard(routeId, directionId, stopId, currentDayType, isPinned = false) {
   const keyboard = new InlineKeyboard();
 
   // 1. Переключение Будни / Выходные
@@ -64,8 +64,25 @@ export function scheduleKeyboard(routeId, directionId, stopId, currentDayType) {
   const oppositeLabel = directionId === 'to_minsk' ? '🔄 В обратную сторону (в Гавань)' : '🔄 В обратную сторону (в Минск)';
   keyboard.text(oppositeLabel, `transport:dir:${routeId}:${oppositeDir}`).row();
 
-  // 4. Навигация
+  // 4. Закрепление расписания в шапке чата
+  if (isPinned) {
+    keyboard.text('📍 Открепить из шапки чата', `transport:unpin:${routeId}:${directionId}:${stopId}:${currentDayType}`).row();
+  } else {
+    keyboard.text('📌 Закрепить в шапке чата', `transport:pin:${routeId}:${directionId}:${stopId}:${currentDayType}`).row();
+  }
+
+  // 5. Навигация
   keyboard.text('🚌 К выбору транспорта', 'transport:menu');
 
   return keyboard;
 }
+
+/**
+ * Клавиатура для самого закреплённого сообщения вверху чата
+ */
+export function pinnedScheduleKeyboard() {
+  return new InlineKeyboard()
+    .text('📍 Открепить расписание', 'transport:unpin_direct')
+    .text('🚌 Меню транспорта', 'transport:menu');
+}
+

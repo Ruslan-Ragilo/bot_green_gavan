@@ -19,6 +19,16 @@ CREATE TABLE IF NOT EXISTS user_screens (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Закрепленное избранное расписание в шапке чата
+CREATE TABLE IF NOT EXISTS user_pins (
+  user_id INTEGER PRIMARY KEY,
+  message_id INTEGER NOT NULL,
+  route_id TEXT NOT NULL,
+  direction_id TEXT NOT NULL,
+  stop_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Заведения ЖК
 CREATE TABLE IF NOT EXISTS places (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

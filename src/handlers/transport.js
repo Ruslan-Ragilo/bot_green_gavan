@@ -10,8 +10,10 @@ import {
   routeDirectionKeyboard,
   stopsSelectionKeyboard,
   scheduleKeyboard,
+  pinnedScheduleKeyboard,
 } from '../keyboards/transport.js';
 import { renderScreen } from '../utils/cleanChat.js';
+import { getUserPin, setUserPin, deleteUserPin } from '../db/repositories/users.js';
 
 export const transportComposer = new Composer();
 
@@ -137,6 +139,15 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
     }
   }
 
+  const userPin = getUserPin(ctx.from?.id);
+  const targetStopId = stop?.id || stopId;
+  const isPinned = Boolean(
+    userPin &&
+    userPin.route_id === routeId &&
+    userPin.direction_id === directionId &&
+    userPin.stop_id === targetStopId
+  );
+
   const text = (
     `${route.badge} *${route.number}* → *${direction.title}*\n` +
     `🚏 Остановка: *${stopName}*\n\n` +
@@ -148,6 +159,130 @@ transportComposer.callbackQuery(/^transport:view:([a-z0-9]+):(to_minsk|to_gavan)
 
   await renderScreen(ctx, text, {
     parse_mode: 'Markdown',
-    reply_markup: scheduleKeyboard(routeId, directionId, stop?.id || stopId, dayType),
+    reply_markup: scheduleKeyboard(routeId, directionId, targetStopId, dayType, isPinned),
   });
 });
+
+// Форматирование карточки для закрепления вверху чата
+function formatPinnedScheduleCard(route, direction, stopName, stopSchedule) {
+  const formatRows = (arr) => {
+    if (!arr || arr.length === 0) return '_Рейсов нет_';
+    const rows = [];
+    for (let i = 0; i < arr.length; i += 4) {
+      rows.push(arr.slice(i, i + 4).map((t) => `\`${t}\``).join('  '));
+    }
+    return rows.join('\n');
+  };
+
+  const weekdaysText = formatRows(stopSchedule.weekdays);
+  const weekendsText = formatRows(stopSchedule.weekends);
+
+  return (
+    `📌 *Избранное расписание: ${route.badge} ${route.number}*\n` +
+    `🚏 *Остановка:* ${stopName}\n` +
+    `🏙 *Направление:* ${direction.title}\n\n` +
+    `📅 *Будние дни:*\n` +
+    `${weekdaysText}\n\n` +
+    `🎉 *Выходные дни:*\n` +
+    `${weekendsText}\n\n` +
+    `💳 *Проезд:* ${route.fare}\n` +
+    `_Закреплено вверху чата. Нажмите /transport, чтобы открыть меню._`
+  );
+}
+
+// 1. Закрепление расписания в шапке чата
+transportComposer.callbackQuery(/^transport:pin:([a-z0-9]+):(to_minsk|to_gavan):([a-z0-9_]+):(weekdays|weekends|auto)$/, async (ctx) => {
+  const routeId = ctx.match[1];
+  const directionId = ctx.match[2];
+  const stopId = ctx.match[3];
+  const dayType = ctx.match[4];
+  const userId = ctx.from?.id;
+  const chatId = ctx.chat?.id;
+
+  if (!userId || !chatId) return;
+
+  const schedule = getTransportSchedule();
+  const route = schedule.routes[routeId];
+  const direction = route?.directions?.[directionId];
+  if (!route || !direction) {
+    return ctx.answerCallbackQuery({ text: 'Ошибка: маршрут не найден' });
+  }
+
+  const stopSchedule = getStopSchedule(routeId, directionId, stopId);
+  const stopName = stopSchedule.stop?.name || 'Остановка';
+
+  // 1. Открепляем и удаляем предыдущее закрепленное сообщение, если было
+  const existingPin = getUserPin(userId);
+  if (existingPin) {
+    await ctx.api.unpinChatMessage(chatId, existingPin.message_id).catch(() => {});
+    await ctx.api.deleteMessage(chatId, existingPin.message_id).catch(() => {});
+    deleteUserPin(userId);
+  }
+
+  // 2. Отправляем карточку расписания
+  const pinText = formatPinnedScheduleCard(route, direction, stopName, stopSchedule);
+  try {
+    const sent = await ctx.api.sendMessage(chatId, pinText, {
+      parse_mode: 'Markdown',
+      reply_markup: pinnedScheduleKeyboard(),
+    });
+
+    // 3. Тихо закрепляем вверху чата
+    await ctx.api.pinChatMessage(chatId, sent.message_id, { disable_notification: true });
+
+    // 4. Сохраняем в БД
+    setUserPin(userId, sent.message_id, routeId, directionId, stopId);
+
+    await ctx.answerCallbackQuery({
+      text: '📌 Расписание закреплено вверху чата!',
+      show_alert: true,
+    });
+
+    // 5. Обновляем клавиатуру экрана
+    await ctx.editMessageReplyMarkup({
+      reply_markup: scheduleKeyboard(routeId, directionId, stopId, dayType, true),
+    }).catch(() => {});
+  } catch (err) {
+    console.error('[Transport] Ошибка закрепления расписания:', err.message);
+    await ctx.answerCallbackQuery({ text: 'Не удалось закрепить расписание', show_alert: true });
+  }
+});
+
+// 2. Открепление расписания со страницы остановки
+transportComposer.callbackQuery(/^transport:unpin:([a-z0-9]+):(to_minsk|to_gavan):([a-z0-9_]+):(weekdays|weekends|auto)$/, async (ctx) => {
+  const routeId = ctx.match[1];
+  const directionId = ctx.match[2];
+  const stopId = ctx.match[3];
+  const dayType = ctx.match[4];
+  const userId = ctx.from?.id;
+  const chatId = ctx.chat?.id;
+
+  const existingPin = getUserPin(userId);
+  if (existingPin) {
+    await ctx.api.unpinChatMessage(chatId, existingPin.message_id).catch(() => {});
+    await ctx.api.deleteMessage(chatId, existingPin.message_id).catch(() => {});
+    deleteUserPin(userId);
+  }
+
+  await ctx.answerCallbackQuery({ text: 'Расписание откреплено' });
+
+  await ctx.editMessageReplyMarkup({
+    reply_markup: scheduleKeyboard(routeId, directionId, stopId, dayType, false),
+  }).catch(() => {});
+});
+
+// 3. Открепление прямо с кнопки на самом закреплённом сообщении
+transportComposer.callbackQuery('transport:unpin_direct', async (ctx) => {
+  const userId = ctx.from?.id;
+  const chatId = ctx.chat?.id;
+  const msgId = ctx.callbackQuery.message?.message_id;
+
+  if (chatId && msgId) {
+    await ctx.api.unpinChatMessage(chatId, msgId).catch(() => {});
+    await ctx.api.deleteMessage(chatId, msgId).catch(() => {});
+  }
+  deleteUserPin(userId);
+
+  await ctx.answerCallbackQuery({ text: 'Расписание откреплено' });
+});
+
