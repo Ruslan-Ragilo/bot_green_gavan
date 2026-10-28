@@ -12,7 +12,7 @@ import {
   getOrderByCodeOrId,
   cancelOrderByAdmin,
 } from '../db/repositories/orders.js';
-import { getTotalUsersCount, getAllUserIds } from '../db/repositories/users.js';
+import { getTotalUsersCount, getAllUserIds, getUsersStatistics } from '../db/repositories/users.js';
 import { escapeMarkdown } from '../utils/text.js';
 import { checkAndUpdateTransportSchedules } from '../jobs/transportUpdater.js';
 
@@ -24,7 +24,7 @@ const broadcastDrafts = new Map();
 // Главная клавиатура панели администратора
 function adminMenuKeyboard() {
   return new InlineKeyboard()
-    .text('📊 Статистика и заказы', 'admin:stats').row()
+    .text('📊 Статистика и аналитика', 'admin:stats').row()
     .text('⏸ Приём заказов (Пауза/Пуск)', 'admin:places_pause').row()
     .text('🚫 Стоп-лист меню', 'admin:stop_list').row()
     .text('🚌 Обновить расписание транспорта', 'admin:update_transport').row()
@@ -39,13 +39,14 @@ adminComposer.command('admin', async (ctx) => {
     return;
   }
 
-  const usersCount = getTotalUsersCount();
+  const userStats = getUsersStatistics();
   const activePlaces = getActivePlaces();
 
   const text = (
-    `👑 *Панель администратора сервиса предзаказов*\n\n` +
+    `👑 *Панель администратора ЖК «Зелёная Гавань»*\n\n` +
     `👤 *Администратор:* ${ctx.from.first_name} (ID: \`${ctx.from.id}\`)\n` +
-    `👥 *Пользователей в базе:* ${usersCount} чел.\n` +
+    `👥 *Жильцов в базе:* ${userStats.total} чел. (активных за 24ч: *${userStats.active24h}*)\n` +
+    `📌 *Закреплено расписаний:* ${userStats.totalPins} шт.\n` +
     `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n\n` +
     `Выберите раздел управления:`
   );
@@ -61,13 +62,14 @@ adminComposer.callbackQuery('admin:main', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: '⛔ Доступ запрещён', show_alert: true });
   await ctx.answerCallbackQuery();
 
-  const usersCount = getTotalUsersCount();
+  const userStats = getUsersStatistics();
   const activePlaces = getActivePlaces();
 
   const text = (
-    `👑 *Панель администратора сервиса предзаказов*\n\n` +
+    `👑 *Панель администратора ЖК «Зелёная Гавань»*\n\n` +
     `👤 *Администратор:* ${ctx.from.first_name} (ID: \`${ctx.from.id}\`)\n` +
-    `👥 *Пользователей в базе:* ${usersCount} чел.\n` +
+    `👥 *Жильцов в базе:* ${userStats.total} чел. (активных за 24ч: *${userStats.active24h}*)\n` +
+    `📌 *Закреплено расписаний:* ${userStats.totalPins} шт.\n` +
     `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n\n` +
     `Выберите раздел управления:`
   );
@@ -90,28 +92,43 @@ adminComposer.callbackQuery('admin:stats', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: '⛔ Доступ запрещён', show_alert: true });
   await ctx.answerCallbackQuery();
 
-  const stats = getOrdersStatistics();
-  const usersCount = getTotalUsersCount();
+  const userStats = getUsersStatistics();
+  const orderStats = getOrdersStatistics();
+
+  const routeNames = {
+    '200c': '🚌 Автобус 200С',
+    '200dc': '🚌 Автобус 200дС',
+    '1222tk': '🚐 Маршрутка 1222-ТК',
+  };
+
+  let pinsBreakdown = '';
+  if (userStats.pinsByRoute && userStats.pinsByRoute.length > 0) {
+    const list = userStats.pinsByRoute
+      .map(p => `  • ${routeNames[p.route_id] || p.route_id}: *${p.count}*`)
+      .join('\n');
+    pinsBreakdown = `\n${list}`;
+  } else {
+    pinsBreakdown = ' _(пока нет закрепов)_';
+  }
 
   const text = (
-    `📊 *Сводка сервиса предзаказов (Зелёная Гавань)*\n\n` +
-    `👥 *Жильцов в боте:* ${usersCount} чел.\n\n` +
-    `📅 *Сегодня:*\n` +
-    `• Оформлено заказов: *${stats.today.total_count}*\n` +
-    `• Выручка: *${stats.today.total_revenue} ₽*\n` +
-    `• Успешно выдано: ${stats.today.issued_count}\n` +
-    `• Отменено: ${stats.today.cancelled_count}\n\n` +
-    `📈 *За последние 7 дней:*\n` +
-    `• Заказов: *${stats.week.total_count}*\n` +
-    `• Выручка: *${stats.week.total_revenue} ₽*\n\n` +
-    `🏆 *За всё время:*\n` +
-    `• Всего предзаказов: *${stats.allTime.total_count}*\n` +
-    `• Суммарный оборот: *${stats.allTime.total_revenue} ₽*\n` +
-    `• Завершено (выдано): ${stats.allTime.issued_count}\n\n` +
-    `⚡️ *Сейчас в процессе:*\n` +
-    `• Ожидают принятия кухней: ${stats.active.sent_count || 0}\n` +
-    `• Готовятся: ${stats.active.accepted_count || 0}\n` +
-    `• Ждут выдачи жильцу: ${stats.active.ready_count || 0}`
+    `📊 *Сводная аналитика (Зелёная Гавань)*\n\n` +
+    `👥 *Жильцы (Пользователи бота):*\n` +
+    `• Всего в базе: *${userStats.total}* чел.\n` +
+    `• Новых за сегодня: *${userStats.today}*\n` +
+    `• Новых за 7 дней: *${userStats.week}*\n` +
+    `• Активных за последние 24ч: *${userStats.active24h}*\n\n` +
+    `📌 *Закреплённые расписания в чатах:*\n` +
+    `• Всего закреплено: *${userStats.totalPins}*${pinsBreakdown}\n\n` +
+    `☕️ *Сервис предзаказов:*\n` +
+    `• Сегодня: заказов — *${orderStats.today.total_count}*, сумма — *${orderStats.today.total_revenue} BYN*\n` +
+    `  _(выдано: ${orderStats.today.issued_count}, отменено: ${orderStats.today.cancelled_count})_\n` +
+    `• За 7 дней: *${orderStats.week.total_count}* заказов (${orderStats.week.total_revenue} BYN)\n` +
+    `• За всё время: *${orderStats.allTime.total_count}* заказов (${orderStats.allTime.total_revenue} BYN)\n\n` +
+    `⚡️ *Сейчас в работе:*\n` +
+    `• Ожидают принятия кухней: *${orderStats.active.sent_count || 0}*\n` +
+    `• Готовятся: *${orderStats.active.accepted_count || 0}*\n` +
+    `• Готовы к выдаче жильцу: *${orderStats.active.ready_count || 0}*`
   );
 
   const keyboard = new InlineKeyboard()

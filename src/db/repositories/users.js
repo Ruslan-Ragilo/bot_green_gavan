@@ -84,4 +84,22 @@ export function deleteUserPin(userId) {
   return stmt.run(userId);
 }
 
+// Подробная статистика пользователей для панели администратора
+export function getUsersStatistics() {
+  const total = db.prepare('SELECT count(*) as count FROM users').get()?.count || 0;
+  const today = db.prepare("SELECT count(*) as count FROM users WHERE date(created_at) = date('now')").get()?.count || 0;
+  const week = db.prepare("SELECT count(*) as count FROM users WHERE created_at >= datetime('now', '-7 days')").get()?.count || 0;
+  const active24h = db.prepare("SELECT count(*) as count FROM user_screens WHERE updated_at >= datetime('now', '-1 day')").get()?.count || 0;
+
+  let totalPins = 0;
+  let pinsByRoute = [];
+  try {
+    totalPins = db.prepare('SELECT count(*) as count FROM user_pins').get()?.count || 0;
+    pinsByRoute = db.prepare('SELECT route_id, count(*) as count FROM user_pins GROUP BY route_id').all() || [];
+  } catch {}
+
+  return { total, today, week, active24h, totalPins, pinsByRoute };
+}
+
+
 
