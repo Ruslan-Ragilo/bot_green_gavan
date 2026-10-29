@@ -1,5 +1,5 @@
-import { Bot } from 'grammy';
-import { config } from '../config.js';
+import { Bot, InlineKeyboard } from 'grammy';
+import { config, isAdmin } from '../config.js';
 import { startComposer } from './handlers/start.js';
 import { catalogComposer } from './handlers/catalog.js';
 import { cartComposer } from './handlers/cart.js';
@@ -78,6 +78,54 @@ export function createBot() {
   bot.use(cartComposer);
   bot.use(ordersComposer);
   bot.use(staffComposer);
+
+  // Пересылка входящих текстовых сообщений и ответов жильцов администратору
+  bot.on('message:text', async (ctx) => {
+    if (ctx.message.text.startsWith('/')) return;
+    if (isAdmin(ctx.from?.id)) return;
+    if (ctx.chat.type !== 'private') return;
+
+    const senderName = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || 'Жилец';
+    const username = ctx.from?.username ? `@${ctx.from.username}` : 'нет username';
+    const userId = ctx.from?.id;
+
+    console.log(`📩 [Feedback] Получен ответ от ${senderName} (${userId}): ${ctx.message.text}`);
+
+    const escapeHtml = (str) =>
+      String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    const adminText = (
+      `📩 <b>Новое сообщение / ответ от жильца:</b>\n\n` +
+      `👤 <b>От:</b> ${escapeHtml(senderName)} (${escapeHtml(username)})\n` +
+      `🆔 <b>ID:</b> <code>${userId}</code>\n\n` +
+      `💬 <b>Текст:</b>\n${escapeHtml(ctx.message.text)}`
+    );
+
+    const keyboard = ctx.from?.username
+      ? new InlineKeyboard().url('💬 Ответить в ЛС', `https://t.me/${ctx.from.username}`)
+      : undefined;
+
+    for (const adminId of config.adminIds) {
+      try {
+        await ctx.api.sendMessage(adminId, adminText, {
+          parse_mode: 'HTML',
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        console.error('[Feedback] Не удалось переслать админу:', err.message);
+      }
+    }
+
+    await ctx.reply(
+      `Спасибо за обратную связь! 🙏\nЯ передал ваше сообщение автору бота (@${config.creatorUsername.replace('@', '')}).`,
+      {
+        reply_markup: new InlineKeyboard().text('🚌 Расписание транспорта', 'transport:menu'),
+      }
+    );
+  });
 
   return bot;
 }
