@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS items (
   place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT,
-  price INTEGER NOT NULL CHECK (price >= 0),
+  price REAL NOT NULL CHECK (price >= 0),
   is_available INTEGER NOT NULL DEFAULT 1,
   category TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS orders (
   pickup_point TEXT NOT NULL,
   desired_time TEXT NOT NULL,
   comment TEXT,
-  total_price INTEGER NOT NULL CHECK (total_price >= 0),
+  total_price REAL NOT NULL CHECK (total_price >= 0),
   group_message_id INTEGER,
   cooking_minutes INTEGER DEFAULT 20,
   ready_at TEXT,
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS order_items (
   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   item_id INTEGER,
   item_name TEXT NOT NULL,
-  price INTEGER NOT NULL,
+  price REAL NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0)
 );
 

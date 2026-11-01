@@ -11,7 +11,7 @@ import {
 import { staffOrderKeyboard } from '../keyboards/staff.js';
 import { getDesiredTimeLabel, parseCustomTimeInput } from '../utils/time.js';
 import { upsertUser } from '../db/repositories/users.js';
-import { escapeMarkdown } from '../utils/text.js';
+import { escapeMarkdown, formatPrice } from '../utils/text.js';
 import { config } from '../../config.js';
 
 export const cartComposer = new Composer();
@@ -40,10 +40,10 @@ function renderCartText(cart) {
 
   for (let i = 0; i < cart.items.length; i++) {
     const item = cart.items[i];
-    text += `${i + 1}. *${item.item_name}* — ${item.quantity} шт. × ${item.price} ₽ = *${item.subtotal} ₽*\n`;
+    text += `${i + 1}. *${item.item_name}* — ${item.quantity} шт. × ${formatPrice(item.price)} = *${formatPrice(item.subtotal)}*\n`;
   }
 
-  text += `\n💵 *Итого к оплате при получении:* ${cart.totalPrice} ₽\n`;
+  text += `\n💵 *Итого к оплате при получении:* ${formatPrice(cart.totalPrice)}\n`;
   text += `\nНажмите «Выбрать время получения», чтобы завершить предзаказ.`;
   return text;
 }
@@ -220,7 +220,7 @@ cartComposer.callbackQuery(/^time:([a-z0-9_]+)$/, async (ctx) => {
   text += `*Состав заказа:*\n`;
 
   for (const item of cart.items) {
-    text += `• ${item.item_name} × ${item.quantity} = ${item.subtotal} ₽\n`;
+    text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
   }
 
   if (comment) {
@@ -229,7 +229,7 @@ cartComposer.callbackQuery(/^time:([a-z0-9_]+)$/, async (ctx) => {
     text += `\n💬 *Пожелание к заказу:* _не указано_\n`;
   }
 
-  text += `\n💵 *Сумма к оплате при получении:* *${cart.totalPrice} ₽*\n\n`;
+  text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
   text += `Нажмите «Подтвердить предзаказ», чтобы отправить заказ в заведение:`;
 
   await ctx.editMessageText(text, {
@@ -314,7 +314,7 @@ cartComposer.on('message:text', async (ctx, next) => {
     text += `*Состав заказа:*\n`;
 
     for (const item of cart.items) {
-      text += `• ${item.item_name} × ${item.quantity} = ${item.subtotal} ₽\n`;
+      text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
     }
 
     if (comment) {
@@ -323,7 +323,7 @@ cartComposer.on('message:text', async (ctx, next) => {
       text += `\n💬 *Пожелание к заказу:* _не указано_\n`;
     }
 
-    text += `\n💵 *Сумма к оплате при получении:* *${cart.totalPrice} ₽*\n\n`;
+    text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
     text += `Нажмите «Подтвердить предзаказ», чтобы отправить заказ в заведение:`;
 
     return ctx.reply(text, {
@@ -353,11 +353,11 @@ cartComposer.on('message:text', async (ctx, next) => {
     text += `*Состав заказа:*\n`;
 
     for (const item of cart.items) {
-      text += `• ${item.item_name} × ${item.quantity} = ${item.subtotal} ₽\n`;
+      text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
     }
 
     text += `\n💬 *Пожелание к заказу:* _${comment}_\n`;
-    text += `\n💵 *Сумма к оплате при получении:* *${cart.totalPrice} ₽*\n\n`;
+    text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
     text += `Пожелание сохранено! Нажмите «Подтвердить предзаказ»:`;
 
     return ctx.reply(text, {
@@ -417,10 +417,10 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
     `⏱ *Время получения:* ${escapeMarkdown(order.desired_time)}\n` +
     `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n\n` +
     `*Позиции:*\n` +
-    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
+    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${formatPrice(i.price * i.quantity)}`).join('\n') +
     `\n` +
     commentBlock +
-    `\n💵 *Итого:* *${order.total_price} ₽*\n` +
+    `\n💵 *Итого:* *${formatPrice(order.total_price)}*\n` +
     `Статус: 🟡 *Отправлен (ожидает принятия)*`
   );
 
@@ -472,7 +472,7 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
   }
 
   clientConfirmationText += (
-    `💵 *Сумма:* ${order.total_price} ₽ (оплата при получении)\n\n` +
+    `💵 *Сумма:* ${formatPrice(order.total_price)} (оплата при получении)\n\n` +
     `Мы пришлем уведомление, когда заведение примет заказ в работу и когда он будет готов.`
   );
 

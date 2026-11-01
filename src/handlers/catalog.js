@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard } from 'grammy';
 import { getActivePlaces, getPlaceById, getPlaceItems, getItemById } from '../db/repositories/places.js';
 import { addToCart, getCart } from '../db/repositories/cart.js';
 import { placesKeyboard, placeMenuKeyboard, itemDetailKeyboard } from '../keyboards/client.js';
+import { formatPrice } from '../utils/text.js';
 
 export const catalogComposer = new Composer();
 
@@ -94,7 +95,7 @@ catalogComposer.callbackQuery(/^item:(\d+)$/, async (ctx) => {
   const text = (
     `🍴 *${item.name}*\n\n` +
     (item.description ? `${item.description}\n\n` : '') +
-    `💰 *Цена:* ${item.price} ₽\n` +
+    `💰 *Цена:* ${formatPrice(item.price)}\n` +
     `🏪 *Заведение:* ${item.place_name}\n` +
     `📍 *Точка выдачи:* ${item.pickup_point}`
   );

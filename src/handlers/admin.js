@@ -13,7 +13,7 @@ import {
   cancelOrderByAdmin,
 } from '../db/repositories/orders.js';
 import { getTotalUsersCount, getAllUserIds, getUsersStatistics } from '../db/repositories/users.js';
-import { escapeMarkdown } from '../utils/text.js';
+import { escapeMarkdown, formatPrice } from '../utils/text.js';
 import { checkAndUpdateTransportSchedules } from '../jobs/transportUpdater.js';
 
 export const adminComposer = new Composer();
@@ -226,7 +226,7 @@ adminComposer.callbackQuery('admin:stop_list', async (ctx) => {
   const keyboard = new InlineKeyboard();
   for (const item of items) {
     const icon = item.is_available ? '🟢' : '🔴 СТОП:';
-    keyboard.text(`${icon} ${item.name} (${item.price} ₽)`, `admin:toggle_item:${item.id}`).row();
+    keyboard.text(`${icon} ${item.name} (${formatPrice(item.price)})`, `admin:toggle_item:${item.id}`).row();
   }
   keyboard.text('◀️ В админ-меню', 'admin:main');
 
@@ -265,7 +265,7 @@ adminComposer.callbackQuery(/^admin:toggle_item:(\d+)$/, async (ctx) => {
   const keyboard = new InlineKeyboard();
   for (const item of items) {
     const icon = item.is_available ? '🟢' : '🔴 СТОП:';
-    keyboard.text(`${icon} ${item.name} (${item.price} ₽)`, `admin:toggle_item:${item.id}`).row();
+    keyboard.text(`${icon} ${item.name} (${formatPrice(item.price)})`, `admin:toggle_item:${item.id}`).row();
   }
   keyboard.text('◀️ В админ-меню', 'admin:main');
 
@@ -443,9 +443,9 @@ adminComposer.command('order', async (ctx) => {
   text += `📅 *Создан:* ${order.created_at}\n\n`;
   text += `*Состав:*\n`;
   for (const item of order.items) {
-    text += `• ${item.item_name} × ${item.quantity} = ${item.subtotal} ₽\n`;
+    text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
   }
-  text += `\n💵 *Итого:* *${order.total_price} ₽*`;
+  text += `\n💵 *Итого:* *${formatPrice(order.total_price)}*`;
 
   const keyboard = new InlineKeyboard();
   if (order.status !== 'issued' && order.status !== 'cancelled') {

@@ -21,3 +21,11 @@ db.pragma('synchronous = NORMAL');
 
 // Применяем схему при запуске
 db.exec(SCHEMA_SQL);
+
+// Инициализируем стартовые данные для пилота (Varka)
+import('./seedData.js').then(({ ensureSeedData }) => {
+  ensureSeedData(db);
+}).catch((err) => {
+  console.error('[DB] Ошибка авто-инициализации сида:', err);
+});
+

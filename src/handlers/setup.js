@@ -16,7 +16,7 @@ import { addStaffMember, isStaffMember, getPlaceStaffList } from '../db/reposito
 import { createTestOrder, setOrderGroupMessageId } from '../db/repositories/orders.js';
 import { staffOrderKeyboard } from '../keyboards/staff.js';
 import { isAdmin } from '../../config.js';
-import { escapeMarkdown } from '../utils/text.js';
+import { escapeMarkdown, formatPrice } from '../utils/text.js';
 
 export const setupComposer = new Composer();
 
@@ -219,8 +219,8 @@ setupComposer.callbackQuery(/^setup:test_order:(\d+)$/, async (ctx) => {
     `⏱ *Время получения:* ${escapeMarkdown(order.desired_time)}\n` +
     `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n\n` +
     `*Позиции:*\n` +
-    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
-    `\n\n💵 *Итого:* *${order.total_price} ₽*\n` +
+    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${formatPrice(i.price * i.quantity)}`).join('\n') +
+    `\n\n💵 *Итого:* *${formatPrice(order.total_price)}*\n` +
     `Статус: 🟡 *Отправлен (ожидает принятия)*`
   );
 

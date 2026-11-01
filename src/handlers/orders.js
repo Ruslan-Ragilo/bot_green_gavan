@@ -1,7 +1,7 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { getUserOrders, getOrderById, cancelOrderByClient } from '../db/repositories/orders.js';
 import { clientOrderKeyboard } from '../keyboards/client.js';
-import { escapeMarkdown } from '../utils/text.js';
+import { escapeMarkdown, formatPrice } from '../utils/text.js';
 
 export const ordersComposer = new Composer();
 
@@ -102,14 +102,14 @@ ordersComposer.callbackQuery(/^order:client_view:(\d+)$/, async (ctx) => {
   text += `*Состав:*\n`;
 
   for (const item of order.items) {
-    text += `• ${item.item_name} × ${item.quantity} = ${item.price * item.quantity} ₽\n`;
+    text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.price * item.quantity)}\n`;
   }
 
   if (order.comment) {
     text += `\n💬 *Пожелание к заказу:* _${order.comment}_\n`;
   }
 
-  text += `\n💵 *Итого:* *${order.total_price} ₽* (оплата на месте)\n`;
+  text += `\n💵 *Итого:* *${formatPrice(order.total_price)}* (оплата на месте)\n`;
 
   if (order.status === 'ready') {
     text += `\n🎉 *Заказ готов!* Подойдите к точке выдачи и назовите код *${order.order_code}*.`;
@@ -177,7 +177,7 @@ ordersComposer.callbackQuery(/^order:client_cancel:(\d+)$/, async (ctx) => {
         order.group_message_id,
         `❌ *ЗАКАЗ ${order.order_code} ОТМЕНЁН КЛИЕНТОМ*\n\n` +
         `👤 Клиент: ${escapeMarkdown(order.first_name || 'Жилец')}\n` +
-        `Сумма: ${order.total_price} ₽\n` +
+        `Сумма: ${formatPrice(order.total_price)}\n` +
         `Статус: ❌ *Отменён жильцом (долго ждать)*`,
         { parse_mode: 'Markdown' }
       );
@@ -207,7 +207,7 @@ ordersComposer.callbackQuery(/^order:client_cancel:(\d+)$/, async (ctx) => {
   const updatedOrder = getOrderById(orderId);
   await ctx.editMessageText(
     `❌ *Заказ ${order.order_code} успешно отменён.*\n\n` +
-    `Сумма заказа: ${order.total_price} ₽.\n` +
+    `Сумма заказа: ${formatPrice(order.total_price)}.\n` +
     `Вы можете оформить новый предзаказ в любое удобное время.`,
     {
       parse_mode: 'Markdown',

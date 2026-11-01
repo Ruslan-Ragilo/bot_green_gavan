@@ -3,7 +3,7 @@ import { getOrderById, atomicUpdateOrderStatus, cancelOrderByStaff, ORDER_STATUS
 import { isStaffMember } from '../db/repositories/staff.js';
 import { staffOrderKeyboard } from '../keyboards/staff.js';
 import { formatMinskTime, parseDesiredTime } from '../utils/time.js';
-import { escapeMarkdown } from '../utils/text.js';
+import { escapeMarkdown, formatPrice } from '../utils/text.js';
 
 export const staffComposer = new Composer();
 
@@ -39,11 +39,11 @@ function formatGroupCardText(order, staffName) {
     `⏱ *Время получения:* ${escapeMarkdown(order.desired_time)}\n` +
     `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n\n` +
     `*Позиции:*\n` +
-    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${i.price * i.quantity} ₽`).join('\n') +
+    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${formatPrice(i.price * i.quantity)}`).join('\n') +
     `\n` +
     commentBlock +
     readyBlock +
-    `\n💵 *Итого:* *${order.total_price} ₽*\n` +
+    `\n💵 *Итого:* *${formatPrice(order.total_price)}*\n` +
     `Статус: ${statusEmoji} *${statusName}*`
   );
 }
@@ -314,7 +314,7 @@ staffComposer.callbackQuery(/^staff:ready:(\d+)$/, async (ctx) => {
       `🎉 *Ваш заказ ${order.order_code} готов!*\n\n` +
       `📍 *Точка выдачи:* ${order.pickup_point}\n` +
       `🔢 *Код выдачи:* *${order.order_code}*\n` +
-      `💵 *Сумма к оплате:* ${order.total_price} ₽\n\n` +
+      `💵 *Сумма к оплате:* ${formatPrice(order.total_price)}\n\n` +
       `Подойдите к точке выдачи и назовите код заказа сотруднику.`,
       { parse_mode: 'Markdown' }
     );

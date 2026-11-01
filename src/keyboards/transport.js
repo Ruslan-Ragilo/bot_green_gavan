@@ -4,12 +4,22 @@ import { getRouteStops } from '../services/transportService.js';
 /**
  * Шаг 1: Выбор транспорта
  */
-export function transportMenuKeyboard() {
-  return new InlineKeyboard()
+export function transportMenuKeyboard(cartTotalQuantity = 0) {
+  const keyboard = new InlineKeyboard();
+
+  keyboard.text('☕️ Предзаказ в «Varka»', 'catalog:places').row();
+
+  if (cartTotalQuantity > 0) {
+    keyboard.text(`🛒 Корзина (${cartTotalQuantity} шт.)`, 'cart:view').row();
+  }
+
+  keyboard
     .text('🚌 Автобус 200С', 'transport:route:200c').row()
     .text('🚌 Автобус 200дС (через Колодищи-2)', 'transport:route:200dc').row()
     .text('🚐 Маршрутка 1222-ТК', 'transport:route:1222tk').row()
-    .text('☕️ Поддержать проект / Связь', 'support:menu');
+    .text('❤️ Поддержка проекта / Связь', 'support:menu');
+
+  return keyboard;
 }
 
 /**

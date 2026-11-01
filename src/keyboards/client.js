@@ -1,4 +1,5 @@
 import { InlineKeyboard } from 'grammy';
+import { formatPrice } from '../utils/text.js';
 
 // Главное меню жильца
 export function mainMenuKeyboard(cartTotalQuantity = 0, activePlaceName = null) {
@@ -29,7 +30,7 @@ export function placeMenuKeyboard(placeId, items, cartTotalQuantity = 0) {
   const keyboard = new InlineKeyboard();
 
   for (const item of items) {
-    keyboard.text(`${item.name} — ${item.price} ₽`, `item:${item.id}`).row();
+    keyboard.text(`${item.name} — ${formatPrice(item.price)}`, `item:${item.id}`).row();
   }
 
   const cartLabel = cartTotalQuantity > 0 ? `🛒 В корзину (${cartTotalQuantity} шт.)` : '🛒 Корзина';
@@ -44,7 +45,7 @@ export function itemDetailKeyboard(item, currentQuantityInCart = 0) {
   const keyboard = new InlineKeyboard();
 
   if (item.is_available) {
-    keyboard.text(`➕ Добавить за ${item.price} ₽`, `cart:add:${item.id}:1`).row();
+    keyboard.text(`➕ Добавить за ${formatPrice(item.price)}`, `cart:add:${item.id}:1`).row();
   } else {
     keyboard.text('⛔ Временно нет в наличии', 'noop').row();
   }

@@ -1,13 +1,14 @@
 import { Composer } from 'grammy';
 import { upsertUser, deleteUserData } from '../db/repositories/users.js';
 import { transportMenuKeyboard } from '../keyboards/transport.js';
+import { getCart } from '../db/repositories/cart.js';
 import { renderScreen } from '../utils/cleanChat.js';
 
 export const startComposer = new Composer();
 
 const WELCOME_TEXT = (
-  `🚌 *Транспорт ЖК «Зелёная Гавань»*\n\n` +
-  `Выберите транспорт:`
+  `🌲 *Бот ЖК «Зелёная Гавань»*\n\n` +
+  `Выберите нужный сервис:`
 );
 
 // Обработка команды /start
@@ -23,18 +24,21 @@ startComposer.command('start', async (ctx) => {
     username: from.username || null,
   });
 
+  const cart = getCart(from.id);
+
   await renderScreen(ctx, WELCOME_TEXT, {
     parse_mode: 'Markdown',
-    reply_markup: transportMenuKeyboard(),
+    reply_markup: transportMenuKeyboard(cart.totalQuantity),
   });
 });
 
 // Возврат в главное меню
 startComposer.callbackQuery('menu:main', async (ctx) => {
   await ctx.answerCallbackQuery();
+  const cart = getCart(ctx.from.id);
   await renderScreen(ctx, WELCOME_TEXT, {
     parse_mode: 'Markdown',
-    reply_markup: transportMenuKeyboard(),
+    reply_markup: transportMenuKeyboard(cart.totalQuantity),
   });
 });
 
