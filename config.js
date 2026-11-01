@@ -1,5 +1,12 @@
 import process from 'node:process';
 
+// Автоматически загружаем .env в Node.js >= 20.6, если запуск без флага --env-file
+try {
+  process.loadEnvFile?.();
+} catch {
+  // Файл .env может отсутствовать, если переменные заданы системно
+}
+
 export const config = {
   // Токен Telegram-бота
   botToken: process.env.BOT_TOKEN || '',
