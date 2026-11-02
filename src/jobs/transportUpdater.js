@@ -1,8 +1,17 @@
 import { config } from '../../config.js';
-import { getTransportSchedule, saveTransportSchedule } from '../services/transportService.js';
+import { getTransportSchedule, saveTransportSchedule, addMinutesToTime } from '../services/transportService.js';
 
 let nightlyTimeoutId = null;
 let nightlyIntervalId = null;
+
+/**
+ * Смещение времени отправления из Зеленой Гавани (+4 мин).
+ * В API kogda.by отдается время заезда автобуса на конечное кольцо.
+ * Фактическое отправление с посадочной площадки по официальному аншлагу Минсктранса — ровно через 4 минуты отстоя.
+ */
+function shiftToDeparture(times = [], offsetMinutes = 4) {
+  return times.map(t => addMinutesToTime(t, offsetMinutes));
+}
 
 /**
  * Получение даты в формате YYYY-MM-DD для ближайшего буднего дня и ближайшей субботы
@@ -91,20 +100,32 @@ export async function checkAndUpdateTransportSchedules(bot = null) {
 
   try {
     // 1. Автобус 200С: В Минск от «Бульвар Зелёная Гавань»
-    const [cToMinskWk, cToMinskWknd] = await Promise.all([
+    const [rawCToMinskWk, rawCToMinskWknd] = await Promise.all([
       fetchKogdaTimetable('200С', 'Бульвар Зелёная Гавань - ДС Уручье-2', 'Бульвар Зелёная Гавань', weekdayDate),
       fetchKogdaTimetable('200С', 'Бульвар Зелёная Гавань - ДС Уручье-2', 'Бульвар Зелёная Гавань', weekendDate),
     ]);
+    const cToMinskWk = shiftToDeparture(rawCToMinskWk, 4);
+    const cToMinskWknd = shiftToDeparture(rawCToMinskWknd, 4);
 
     const route200cToMinsk = currentSchedule.routes['200c']?.directions?.to_minsk;
     if (route200cToMinsk) {
       if (cToMinskWk.length > 0 && !areTimeArraysEqual(route200cToMinsk.weekdays, cToMinskWk)) {
         changes.push(`🚌 *200С (в Минск, будни)*: было [${route200cToMinsk.weekdays.join(', ')}], стало [${cToMinskWk.join(', ')}]`);
         route200cToMinsk.weekdays = cToMinskWk;
+        if (route200cToMinsk.stops) {
+          for (const s of route200cToMinsk.stops) {
+            s.weekdays = cToMinskWk.map(t => addMinutesToTime(t, s.offsetMinutes || 0));
+          }
+        }
       }
       if (cToMinskWknd.length > 0 && !areTimeArraysEqual(route200cToMinsk.weekends, cToMinskWknd)) {
         changes.push(`🚌 *200С (в Минск, выходные)*: было [${route200cToMinsk.weekends.join(', ')}], стало [${cToMinskWknd.join(', ')}]`);
         route200cToMinsk.weekends = cToMinskWknd;
+        if (route200cToMinsk.stops) {
+          for (const s of route200cToMinsk.stops) {
+            s.weekends = cToMinskWknd.map(t => addMinutesToTime(t, s.offsetMinutes || 0));
+          }
+        }
       }
     }
 
@@ -119,44 +140,53 @@ export async function checkAndUpdateTransportSchedules(bot = null) {
       if (cToGavanWk.length > 0 && !areTimeArraysEqual(route200cToGavan.baseWeekdays, cToGavanWk)) {
         changes.push(`🚌 *200С (в Гавань, будни)*: было [${route200cToGavan.baseWeekdays.join(', ')}], стало [${cToGavanWk.join(', ')}]`);
         route200cToGavan.baseWeekdays = cToGavanWk;
-        route200cToGavan.weekdays = cToGavanWk.map(t => {
-          const [h, m] = t.split(':').map(Number);
-          const total = h * 60 + m + 7;
-          return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-        });
+        route200cToGavan.weekdays = cToGavanWk.map(t => addMinutesToTime(t, 7));
+        if (route200cToGavan.stops) {
+          for (const s of route200cToGavan.stops) {
+            s.weekdays = cToGavanWk.map(t => addMinutesToTime(t, s.offsetMinutes || 0));
+          }
+        }
       }
       if (cToGavanWknd.length > 0 && !areTimeArraysEqual(route200cToGavan.baseWeekends, cToGavanWknd)) {
         changes.push(`🚌 *200С (в Гавань, выходные)*: было [${route200cToGavan.baseWeekends.join(', ')}], стало [${cToGavanWknd.join(', ')}]`);
         route200cToGavan.baseWeekends = cToGavanWknd;
-        route200cToGavan.weekends = cToGavanWknd.map(t => {
-          const [h, m] = t.split(':').map(Number);
-          const total = h * 60 + m + 7;
-          return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-        });
+        route200cToGavan.weekends = cToGavanWknd.map(t => addMinutesToTime(t, 7));
+        if (route200cToGavan.stops) {
+          for (const s of route200cToGavan.stops) {
+            s.weekends = cToGavanWknd.map(t => addMinutesToTime(t, s.offsetMinutes || 0));
+          }
+        }
       }
     }
 
     // 3. Автобус 200дС (200Д): В Минск и в Гавань (только будни)
-    const [dToMinskWk, dToGavanWk] = await Promise.all([
+    const [rawDToMinskWk, dToGavanWk] = await Promise.all([
       fetchKogdaTimetable('200Д', 'Бульвар Зелёная Гавань - ДС Уручье-2', 'Бульвар Зелёная Гавань', weekdayDate),
       fetchKogdaTimetable('200Д', 'ДС Уручье-2 - Бульвар Зелёная Гавань', 'ДС Уручье-2', weekdayDate),
     ]);
+    const dToMinskWk = shiftToDeparture(rawDToMinskWk, 4);
 
     const route200dToMinsk = currentSchedule.routes['200dc']?.directions?.to_minsk;
     if (route200dToMinsk && dToMinskWk.length > 0 && !areTimeArraysEqual(route200dToMinsk.weekdays, dToMinskWk)) {
       changes.push(`🚌 *200дС (в Минск, будни)*: было [${route200dToMinsk.weekdays.join(', ')}], стало [${dToMinskWk.join(', ')}]`);
       route200dToMinsk.weekdays = dToMinskWk;
+      if (route200dToMinsk.stops) {
+        for (const s of route200dToMinsk.stops) {
+          s.weekdays = dToMinskWk.map(t => addMinutesToTime(t, s.offsetMinutes || 0));
+        }
+      }
     }
 
     const route200dToGavan = currentSchedule.routes['200dc']?.directions?.to_gavan;
     if (route200dToGavan && dToGavanWk.length > 0 && !areTimeArraysEqual(route200dToGavan.baseWeekdays, dToGavanWk)) {
       changes.push(`🚌 *200дС (в Гавань, будни)*: было [${route200dToGavan.baseWeekdays.join(', ')}], стало [${dToGavanWk.join(', ')}]`);
       route200dToGavan.baseWeekdays = dToGavanWk;
-      route200dToGavan.weekdays = dToGavanWk.map(t => {
-        const [h, m] = t.split(':').map(Number);
-        const total = h * 60 + m + 7;
-        return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-      });
+      route200dToGavan.weekdays = dToGavanWk.map(t => addMinutesToTime(t, 7));
+      if (route200dToGavan.stops) {
+        for (const s of route200dToGavan.stops) {
+          s.weekdays = dToGavanWk.map(t => addMinutesToTime(t, s.offsetMinutes || 0));
+        }
+      }
     }
 
     // Сохранение изменений
