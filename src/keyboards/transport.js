@@ -7,17 +7,23 @@ import { getRouteStops } from '../services/transportService.js';
 export function transportMenuKeyboard(cartTotalQuantity = 0) {
   const keyboard = new InlineKeyboard();
 
-  keyboard.text('☕️ Предзаказ в «Varka»', 'catalog:places').row();
-
-  if (cartTotalQuantity > 0) {
-    keyboard.text(`🛒 Корзина (${cartTotalQuantity} шт.)`, 'cart:view').row();
-  }
-
+  // 1. Расписание транспорта (главный приоритет)
   keyboard
-    .text('🚌 Автобус 200С', 'transport:route:200c').row()
-    .text('🚌 Автобус 200дС (через Колодищи-2)', 'transport:route:200dc').row()
-    .text('🚐 Маршрутка 1222-ТК', 'transport:route:1222tk').row()
-    .text('❤️ Поддержка проекта / Связь', 'support:menu');
+    .text('🚌 Автобус 200С', 'transport:route:200c')
+    .text('🚌 Автобус 200дС', 'transport:route:200dc')
+    .row()
+    .text('🚐 Маршрутка 1222-ТК', 'transport:route:1222tk')
+    .row();
+
+  // 2. Локальные сервисы и предзаказ
+  const varkaLabel = cartTotalQuantity > 0
+    ? `☕️ Кофейня Varka • Корзина (${cartTotalQuantity})`
+    : '☕️ Кофейня Varka • Предзаказ';
+
+  keyboard.text(varkaLabel, 'catalog:places').row();
+
+  // 3. Поддержка и обратная связь
+  keyboard.text('❤️ Поддержка проекта / Связь', 'support:menu');
 
   return keyboard;
 }
