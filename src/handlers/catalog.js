@@ -74,7 +74,7 @@ catalogComposer.callbackQuery(/^(?:place:|catalog:place:)(.+)$/, async (ctx) => 
 
   await ctx.editMessageText(text, {
     parse_mode: 'Markdown',
-    reply_markup: placeMenuKeyboard(placeId, items, cartTotalQty),
+    reply_markup: placeMenuKeyboard(place.id, items, cartTotalQty),
   });
 });
 
