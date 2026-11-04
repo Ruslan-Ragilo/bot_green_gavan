@@ -110,12 +110,25 @@ export function orderConfirmKeyboard(timeKey, hasComment = false) {
 export function clientOrderKeyboard(order) {
   const keyboard = new InlineKeyboard();
 
-  // Жилец может отменить заказ ТОЛЬКО в статусе 'sent' (до принятия заведением)
   if (order.status === 'sent') {
+    keyboard.text('✏️ Изменить время получения', `order:change_time:${order.id}`).row();
+    keyboard.text('❌ Отменить заказ', `order:client_cancel:${order.id}`).row();
+  } else if (order.status === 'accepted') {
     keyboard.text('❌ Отменить заказ', `order:client_cancel:${order.id}`).row();
   }
 
   keyboard.text('📋 Мои заказы', 'orders:my').row();
   keyboard.text('◀️ В главное меню', 'menu:main');
   return keyboard;
+}
+
+// Выбор нового времени при редактировании заказа
+export function orderEditTimeKeyboard(orderId) {
+  return new InlineKeyboard()
+    .text('⚡ Как можно скорее (~15–20 мин)', `order:edit_time:${orderId}:asap`).row()
+    .text('🕒 Через 30 минут', `order:edit_time:${orderId}:30m`)
+    .text('🕓 Через 45 минут', `order:edit_time:${orderId}:45m`).row()
+    .text('🕔 Через 1 час', `order:edit_time:${orderId}:60m`)
+    .text('✍️ Указать точное время', `order:edit_time_custom:${orderId}`).row()
+    .text('◀️ Назад к заказу', `order:client_view:${orderId}`);
 }

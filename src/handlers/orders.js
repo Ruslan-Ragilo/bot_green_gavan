@@ -1,9 +1,13 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { getUserOrders, getOrderById, cancelOrderByClient } from '../db/repositories/orders.js';
-import { clientOrderKeyboard } from '../keyboards/client.js';
+import { getUserOrders, getOrderById, cancelOrderByClient, updateOrderDesiredTime } from '../db/repositories/orders.js';
+import { clientOrderKeyboard, orderEditTimeKeyboard } from '../keyboards/client.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
+import { getDesiredTimeLabel, parseCustomTimeInput } from '../utils/time.js';
 
 export const ordersComposer = new Composer();
+
+// userId → orderId: ожидаем ввод нового времени для редактирования заказа
+const pendingEditTimeUsers = new Map();
 
 // Словарь статусов на русском с эмодзи
 export const STATUS_LABELS = {
@@ -213,5 +217,163 @@ ordersComposer.callbackQuery(/^order:client_cancel:(\d+)$/, async (ctx) => {
       parse_mode: 'Markdown',
       reply_markup: clientOrderKeyboard(updatedOrder),
     }
+  );
+});
+
+// Экран выбора нового времени для редактирования заказа
+ordersComposer.callbackQuery(/^order:change_time:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const orderId = Number(ctx.match[1]);
+  const order = getOrderById(orderId);
+
+  if (!order || order.user_id !== ctx.from.id) {
+    return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
+  }
+
+  if (order.status !== 'sent') {
+    return ctx.answerCallbackQuery({
+      text: 'Изменить время можно только пока заведение не приняло заказ',
+      show_alert: true,
+    });
+  }
+
+  pendingEditTimeUsers.delete(ctx.from.id);
+
+  await ctx.editMessageText(
+    `✏️ *Изменение времени получения*\n\n` +
+    `Заказ: *${order.order_code}*\n` +
+    `Текущее время: _${escapeMarkdown(order.desired_time)}_\n\n` +
+    `Выберите новое время:`,
+    { parse_mode: 'Markdown', reply_markup: orderEditTimeKeyboard(orderId) }
+  );
+});
+
+// Выбор нового времени из пресетов (asap, 30m, 45m, 60m)
+ordersComposer.callbackQuery(/^order:edit_time:(\d+):([a-z0-9_]+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const orderId = Number(ctx.match[1]);
+  const timeKey = ctx.match[2];
+  const newDesiredTime = getDesiredTimeLabel(timeKey);
+
+  const updatedOrder = updateOrderDesiredTime(orderId, ctx.from.id, newDesiredTime);
+
+  if (!updatedOrder) {
+    try {
+      await ctx.editMessageText(
+        '⚠️ Не удалось изменить время: заказ уже принят заведением или не найден.',
+        { reply_markup: new InlineKeyboard().text('📋 Мои заказы', 'orders:my') }
+      );
+    } catch (_) {}
+    return;
+  }
+
+  if (updatedOrder.group_chat_id && updatedOrder.group_message_id) {
+    try {
+      await ctx.api.sendMessage(
+        updatedOrder.group_chat_id,
+        `✏️ *Клиент изменил время получения*\n\n` +
+        `Заказ: *${updatedOrder.order_code}*\n` +
+        `Новое время: *${escapeMarkdown(newDesiredTime)}*`,
+        {
+          parse_mode: 'Markdown',
+          reply_parameters: { message_id: updatedOrder.group_message_id },
+        }
+      );
+    } catch (err) {
+      console.error('[Error] Не удалось уведомить группу об изменении времени:', err);
+    }
+  }
+
+  await ctx.editMessageText(
+    `✅ *Время получения изменено!*\n\n` +
+    `Заказ: *${updatedOrder.order_code}*\n` +
+    `🏪 Заведение: ${escapeMarkdown(updatedOrder.place_name)}\n` +
+    `⏱ Новое время: *${escapeMarkdown(newDesiredTime)}*\n\n` +
+    `Заведение получило уведомление об изменении.`,
+    { parse_mode: 'Markdown', reply_markup: clientOrderKeyboard(updatedOrder) }
+  );
+});
+
+// Запрос ввода точного нового времени
+ordersComposer.callbackQuery(/^order:edit_time_custom:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const orderId = Number(ctx.match[1]);
+  const order = getOrderById(orderId);
+
+  if (!order || order.user_id !== ctx.from.id || order.status !== 'sent') {
+    return ctx.answerCallbackQuery({ text: 'Недоступно: заказ уже принят или не найден', show_alert: true });
+  }
+
+  pendingEditTimeUsers.set(ctx.from.id, orderId);
+
+  await ctx.editMessageText(
+    `🕒 *Введите новое время самовывоза*\n\n` +
+    `Напишите время следующим сообщением (например: \`19:00\`, \`18:30\`):\n\n` +
+    `⚠️ _Минимум за 15 минут от текущего времени._`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: new InlineKeyboard().text('◀️ Назад', `order:change_time:${orderId}`),
+    }
+  );
+});
+
+// Перехват текстового сообщения: ввод нового точного времени для редактирования заказа
+ordersComposer.on('message:text', async (ctx, next) => {
+  const userId = ctx.from?.id;
+  if (!userId || !pendingEditTimeUsers.has(userId)) return next();
+
+  const orderId = pendingEditTimeUsers.get(userId);
+  const input = ctx.message.text.trim();
+  const result = parseCustomTimeInput(input);
+
+  if (!result.ok) {
+    const backKeyboard = new InlineKeyboard().text('◀️ Назад', `order:change_time:${orderId}`);
+    if (result.error === 'too_soon_or_past') {
+      return ctx.reply(
+        `⚠️ Время «${input}» уже прошло или слишком близко.\n\n` +
+        `Сейчас: *${result.currentStr}*, минимальное: *${result.minAllowedStr}*`,
+        { parse_mode: 'Markdown', reply_markup: backKeyboard }
+      );
+    }
+    return ctx.reply(
+      `⚠️ Неверный формат. Укажите время вида \`19:00\` или \`18:30\`:`,
+      { parse_mode: 'Markdown', reply_markup: backKeyboard }
+    );
+  }
+
+  pendingEditTimeUsers.delete(userId);
+  const newDesiredTime = result.label;
+  const updatedOrder = updateOrderDesiredTime(orderId, userId, newDesiredTime);
+
+  if (!updatedOrder) {
+    return ctx.reply(
+      '⚠️ Не удалось изменить время: заказ уже принят заведением или не найден.',
+      { reply_markup: new InlineKeyboard().text('📋 Мои заказы', 'orders:my') }
+    );
+  }
+
+  if (updatedOrder.group_chat_id && updatedOrder.group_message_id) {
+    try {
+      await ctx.api.sendMessage(
+        updatedOrder.group_chat_id,
+        `✏️ *Клиент изменил время получения*\n\n` +
+        `Заказ: *${updatedOrder.order_code}*\n` +
+        `Новое время: *${escapeMarkdown(newDesiredTime)}*`,
+        {
+          parse_mode: 'Markdown',
+          reply_parameters: { message_id: updatedOrder.group_message_id },
+        }
+      );
+    } catch (err) {
+      console.error('[Error] Не удалось уведомить группу об изменении времени:', err);
+    }
+  }
+
+  await ctx.reply(
+    `✅ *Время получения изменено!*\n\n` +
+    `Заказ: *${updatedOrder.order_code}*\n` +
+    `⏱ Новое время: *${escapeMarkdown(newDesiredTime)}*\n\n` +
+    `Заведение получило уведомление.`,
+    { parse_mode: 'Markdown', reply_markup: clientOrderKeyboard(updatedOrder) }
   );
 });

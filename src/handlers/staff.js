@@ -1,7 +1,7 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { getOrderById, atomicUpdateOrderStatus, cancelOrderByStaff, ORDER_STATUSES } from '../db/repositories/orders.js';
+import { getOrderById, atomicUpdateOrderStatus, cancelOrderByStaff, setOrderReadyAt, ORDER_STATUSES } from '../db/repositories/orders.js';
 import { isStaffMember } from '../db/repositories/staff.js';
-import { staffOrderKeyboard } from '../keyboards/staff.js';
+import { staffOrderKeyboard, cancelReasonKeyboard } from '../keyboards/staff.js';
 import { formatMinskTime, parseDesiredTime } from '../utils/time.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
 
@@ -316,7 +316,10 @@ staffComposer.callbackQuery(/^staff:ready:(\d+)$/, async (ctx) => {
       `🔢 *Код выдачи:* *${order.order_code}*\n` +
       `💵 *Сумма к оплате:* ${formatPrice(order.total_price)}\n\n` +
       `Подойдите к точке выдачи и назовите код заказа сотруднику.`,
-      { parse_mode: 'Markdown' }
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard().text('📦 Детали заказа', `order:client_view:${order.id}`),
+      }
     );
   } catch (err) {
     console.error(`[Error] Не удалось отправить уведомление о готовности жильцу ${order.user_id}:`, err);
@@ -426,5 +429,157 @@ staffComposer.callbackQuery(/^staff:cancel:(\d+)$/, async (ctx) => {
     );
   } catch (err) {
     console.error(`[Error] Не удалось отправить уведомление об отмене жильцу ${order.user_id}:`, err);
+  }
+});
+
+// Показ выбора причины отклонения (только меняет кнопки, текст карточки остаётся)
+staffComposer.callbackQuery(/^staff:cancel_prompt:(\d+)$/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  const order = getOrderById(orderId);
+
+  if (!order) return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
+
+  if (!isStaffMember(ctx.from.id, order.place_id)) {
+    return ctx.answerCallbackQuery({ text: '⛔ Нет прав', show_alert: true });
+  }
+
+  await ctx.answerCallbackQuery();
+
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: cancelReasonKeyboard(orderId) });
+  } catch (err) {
+    console.error('[Error] Не удалось показать причины отмены:', err);
+  }
+});
+
+// Возврат к оригинальным кнопкам заказа (отмена выбора причины)
+staffComposer.callbackQuery(/^staff:cancel_back:(\d+)$/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  const order = getOrderById(orderId);
+
+  if (!order) return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
+
+  await ctx.answerCallbackQuery();
+
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: staffOrderKeyboard(order) });
+  } catch (err) {
+    console.error('[Error] Ошибка восстановления клавиатуры:', err);
+  }
+});
+
+// Отклонение заказа с конкретной причиной
+const CANCEL_REASONS = {
+  no_ingredients: 'Закончились ингредиенты',
+  closing: 'Заведение закрывается',
+  overloaded: 'Перегружена кухня',
+};
+
+staffComposer.callbackQuery(/^staff:cancel_reason:(\d+):(no_ingredients|closing|overloaded)$/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  const reasonCode = ctx.match[2];
+  const reasonText = CANCEL_REASONS[reasonCode];
+  const order = getOrderById(orderId);
+
+  if (!order) return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
+
+  if (!isStaffMember(ctx.from.id, order.place_id)) {
+    return ctx.answerCallbackQuery({ text: '⛔ Нет прав', show_alert: true });
+  }
+
+  const staffName = ctx.from.first_name || 'Сотрудник';
+  const success = cancelOrderByStaff(orderId, ctx.from.id);
+
+  if (!success) {
+    return ctx.answerCallbackQuery({ text: 'Заказ уже выдан или отменён', show_alert: true });
+  }
+
+  await ctx.answerCallbackQuery({ text: `Заказ ${order.order_code} отклонён` });
+
+  const updatedOrder = getOrderById(orderId);
+
+  try {
+    await ctx.editMessageText(formatGroupCardText(updatedOrder, staffName), {
+      parse_mode: 'Markdown',
+      reply_markup: staffOrderKeyboard(updatedOrder),
+    });
+  } catch (err) {
+    console.error('[Error] Ошибка обновления карточки после отклонения:', err);
+  }
+
+  try {
+    await ctx.api.sendMessage(
+      order.user_id,
+      `❌ *Ваш заказ ${order.order_code} был отклонён заведением «${order.place_name}».*\n\n` +
+      `Причина: *${reasonText}*.\n\n` +
+      `Приносим извинения! Вы можете оформить заказ позже.`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: new InlineKeyboard().text('🍽 Оформить новый заказ', 'catalog:places'),
+      }
+    );
+  } catch (err) {
+    console.error(`[Error] Не удалось уведомить жильца об отклонении:`, err);
+  }
+});
+
+// Сдвиг времени готовности заказа персоналом (+10/+15/+20 мин)
+staffComposer.callbackQuery(/^staff:shift_time:(\d+):(\d+)$/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  const extraMinutes = Number(ctx.match[2]);
+  const order = getOrderById(orderId);
+
+  if (!order) return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
+
+  if (!isStaffMember(ctx.from.id, order.place_id)) {
+    return ctx.answerCallbackQuery({ text: '⛔ Нет прав', show_alert: true });
+  }
+
+  if (order.status !== ORDER_STATUSES.ACCEPTED) {
+    return ctx.answerCallbackQuery({ text: 'Заказ уже не в работе', show_alert: true });
+  }
+
+  const staffName = ctx.from.first_name || 'Сотрудник';
+
+  let newReadyAt;
+  if (order.ready_at) {
+    const [hh, mm] = order.ready_at.split(':').map(Number);
+    const total = hh * 60 + mm + extraMinutes;
+    newReadyAt = `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  } else {
+    newReadyAt = formatMinskTime(new Date(Date.now() + (20 + extraMinutes) * 60 * 1000));
+  }
+
+  const updatedOrder = setOrderReadyAt(orderId, newReadyAt);
+  if (!updatedOrder) {
+    return ctx.answerCallbackQuery({ text: 'Не удалось обновить время', show_alert: true });
+  }
+
+  await ctx.answerCallbackQuery({ text: `Время сдвинуто: ~${newReadyAt}` });
+
+  try {
+    await ctx.editMessageText(formatGroupCardText(updatedOrder, staffName), {
+      parse_mode: 'Markdown',
+      reply_markup: staffOrderKeyboard(updatedOrder),
+    });
+  } catch (err) {
+    console.error('[Error] Ошибка обновления карточки после сдвига времени:', err);
+  }
+
+  try {
+    const shiftKeyboard = new InlineKeyboard()
+      .text('👌 Подожду', `order:delay_ack:${order.id}`)
+      .text('❌ Отменить', `order:client_cancel:${order.id}`);
+
+    await ctx.api.sendMessage(
+      order.user_id,
+      `⏱ *Небольшая задержка по заказу ${order.order_code}*\n\n` +
+      `🏪 Заведение «${order.place_name}» сдвинуло время готовности на *+${extraMinutes} мин*.\n\n` +
+      `🕐 Новое время готовности: *~${newReadyAt}*\n` +
+      `📍 Точка самовывоза: ${order.pickup_point}`,
+      { parse_mode: 'Markdown', reply_markup: shiftKeyboard }
+    );
+  } catch (err) {
+    console.error(`[Error] Не удалось уведомить жильца о сдвиге времени:`, err);
   }
 });

@@ -1,3 +1,4 @@
+import { InlineKeyboard } from 'grammy';
 import { config } from '../../config.js';
 import { getExpiredSentOrders, atomicUpdateOrderStatus, ORDER_STATUSES } from '../db/repositories/orders.js';
 
@@ -49,7 +50,10 @@ export async function checkExpiredOrders(bot) {
           `⚪ *Ваш заказ ${order.order_code} был отменён.*\n\n` +
           `К сожалению, заведение «${order.place_name}» не успело принять его в течение ${config.orderExpiryMinutes} минут. ` +
           `Пожалуйста, попробуйте оформить заказ позже или выберите другое заведение.`,
-          { parse_mode: 'Markdown' }
+          {
+            parse_mode: 'Markdown',
+            reply_markup: new InlineKeyboard().text('🔄 Оформить новый заказ', 'catalog:places'),
+          }
         );
       } catch (err) {
         console.error(`[Job Error] Не удалось уведомить жильца ${order.user_id} о просрочке заказа:`, err);

@@ -18,19 +18,24 @@ export function staffOrderKeyboard(order) {
         .text('⏱ 30 мин', `staff:accept_time:${order.id}:30`)
         .text('🔥 45 мин', `staff:accept_time:${order.id}:45`)
         .row()
-        .text('❌ Отклонить (Запара)', `staff:cancel:${order.id}`);
+        .text('❌ Отклонить (Запара)', `staff:cancel_prompt:${order.id}`);
     } else {
       // Заказ ко времени (отложенный слот или точное время жильца, например «К 18:30»)
       keyboard
         .text(`✅ Принять к ${timeInfo.targetTimeStr}`, `staff:accept_target:${order.id}`)
         .row()
         .text('🔥 Задержка (+15 мин)', `staff:accept_delay:${order.id}:15`)
-        .text('❌ Отклонить', `staff:cancel:${order.id}`);
+        .text('❌ Отклонить', `staff:cancel_prompt:${order.id}`);
     }
   } else if (order.status === 'accepted') {
     keyboard
       .text('🔔 Готов к выдаче', `staff:ready:${order.id}`)
-      .text('❌ Отменить', `staff:cancel:${order.id}`);
+      .row()
+      .text('⏱ +10 мин', `staff:shift_time:${order.id}:10`)
+      .text('⏱ +15 мин', `staff:shift_time:${order.id}:15`)
+      .text('⏱ +20 мин', `staff:shift_time:${order.id}:20`)
+      .row()
+      .text('❌ Отменить', `staff:cancel_prompt:${order.id}`);
   } else if (order.status === 'ready') {
     keyboard
       .text('📦 Заказ выдан', `staff:issued:${order.id}`);
@@ -38,4 +43,13 @@ export function staffOrderKeyboard(order) {
 
   // Для финальных статусов (issued, cancelled, expired) кнопок нет
   return keyboard;
+}
+
+// Выбор причины отклонения заказа
+export function cancelReasonKeyboard(orderId) {
+  return new InlineKeyboard()
+    .text('🥬 Нет ингредиентов', `staff:cancel_reason:${orderId}:no_ingredients`).row()
+    .text('🔒 Заведение закрывается', `staff:cancel_reason:${orderId}:closing`).row()
+    .text('🔥 Перегружена кухня', `staff:cancel_reason:${orderId}:overloaded`).row()
+    .text('◀️ Назад', `staff:cancel_back:${orderId}`);
 }

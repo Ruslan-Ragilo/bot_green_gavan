@@ -402,4 +402,26 @@ export function cancelOrderByAdmin(orderId, adminId) {
   return transaction();
 }
 
+// Обновление желаемого времени получения жильцом (только пока статус 'sent')
+export function updateOrderDesiredTime(orderId, userId, newDesiredTime) {
+  const order = getOrderById(orderId);
+  if (!order || order.user_id !== userId) return null;
+  if (order.status !== ORDER_STATUSES.SENT) return null;
+
+  const result = db.prepare(
+    `UPDATE orders SET desired_time = ?, updated_at = datetime('now') WHERE id = ? AND status = 'sent'`
+  ).run(newDesiredTime, orderId);
+
+  return result.changes > 0 ? getOrderById(orderId) : null;
+}
+
+// Сдвиг времени готовности персоналом (только в статусе 'accepted')
+export function setOrderReadyAt(orderId, newReadyAt) {
+  const result = db.prepare(
+    `UPDATE orders SET ready_at = ?, updated_at = datetime('now') WHERE id = ? AND status = 'accepted'`
+  ).run(newReadyAt, orderId);
+
+  return result.changes > 0 ? getOrderById(orderId) : null;
+}
+
 
