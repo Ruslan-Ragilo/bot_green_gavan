@@ -1,5 +1,5 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { getActivePlaces, getPlaceById, getPlaceItems, getItemById } from '../db/repositories/places.js';
+import { getActivePlaces, getPlaceById, getPlaceBySlug, getPlaceItems, getItemById } from '../db/repositories/places.js';
 import { addToCart, getCart } from '../db/repositories/cart.js';
 import { placesKeyboard, placeMenuKeyboard, itemDetailKeyboard } from '../keyboards/client.js';
 import { formatPrice } from '../utils/text.js';
@@ -18,7 +18,7 @@ catalogComposer.callbackQuery('catalog:places', async (ctx) => {
     });
   }
 
-  // Если активно только одно заведение (например, пиццерия), сразу открываем его меню
+  // Если активно только одно заведение, сразу открываем его меню
   if (places.length === 1) {
     const place = places[0];
     const items = getPlaceItems(place.id, { onlyAvailable: true });
@@ -49,11 +49,11 @@ catalogComposer.callbackQuery('catalog:places', async (ctx) => {
   });
 });
 
-// Просмотр меню выбранного заведения
-catalogComposer.callbackQuery(/^place:(\d+)$/, async (ctx) => {
+// Просмотр меню выбранного заведения (по ID или по slug)
+catalogComposer.callbackQuery(/^(?:place:|catalog:place:)(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
-  const placeId = Number(ctx.match[1]);
-  const place = getPlaceById(placeId);
+  const param = ctx.match[1];
+  const place = /^\d+$/.test(param) ? getPlaceById(Number(param)) : getPlaceBySlug(param);
 
   if (!place || !place.is_active) {
     return ctx.editMessageText('Заведение временно недоступно.', {
@@ -61,9 +61,9 @@ catalogComposer.callbackQuery(/^place:(\d+)$/, async (ctx) => {
     });
   }
 
-  const items = getPlaceItems(placeId, { onlyAvailable: true });
+  const items = getPlaceItems(place.id, { onlyAvailable: true });
   const cart = getCart(ctx.from.id);
-  const cartTotalQty = (cart.place && cart.place.id === placeId) ? cart.totalQuantity : 0;
+  const cartTotalQty = (cart.place && cart.place.id === place.id) ? cart.totalQuantity : 0;
 
   const text = (
     `🏪 *${place.name}*\n` +

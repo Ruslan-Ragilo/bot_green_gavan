@@ -24,12 +24,31 @@ export const DEFAULT_PLACES = [
       { name: 'Сэндвич с лососем и сливочным сыром', description: 'Слабосоленый лосось, сливочный сыр, свежий огурец, зелень', price: 13.5, category: 'Завтраки' },
     ],
   },
+  {
+    name: 'Пиццерия «Kava la Pechi»',
+    slug: 'kava_la_pechi',
+    description: 'Хрустящая римская пицца из дровяной печи и домашние напитки 🍕🔥',
+    pickup_point: 'Зелёная Гавань (зона выдачи пиццы)',
+    group_chat_id: null,
+    is_active: 1,
+    items: [
+      { name: 'Пицца Пепперони 30 см', description: 'Пикантная салями пепперони, моцарелла, томатный соус, орегано', price: 21.5, category: 'Пицца' },
+      { name: 'Пицца Маргарита 30 см', description: 'Томаты черри, моцарелла фиор ди латте, базилик, оливковое масло', price: 17.5, category: 'Пицца' },
+      { name: 'Пицца Четыре сыра 30 см', description: 'Моцарелла, горгонзола, пармезан, чеддер, сливочный соус', price: 23.0, category: 'Пицца' },
+      { name: 'Пицца Ветчина и грибы 30 см', description: 'Нежная ветчина, свежие шампиньоны, моцарелла, томатный соус', price: 20.5, category: 'Пицца' },
+      { name: 'Пицца Карбонара 30 см', description: 'Хрустящий бекон, сливочный соус, моцарелла, пармезан, свежий перец', price: 22.0, category: 'Пицца' },
+      { name: 'Пицца Цыплёнок BBQ 30 см', description: 'Филе цыплёнка, соус барбекю, красный лук, моцарелла, бекон', price: 22.5, category: 'Пицца' },
+      { name: 'Пицца Груша и горгонзола 30 см', description: 'Сладкая груша, благородный сыр горгонзола, моцарелла, грецкий орех, мёд', price: 24.0, category: 'Пицца' },
+      { name: 'Пицца Дьявола (Острая) 30 см', description: 'Острая колбаса чоризо, халапеньо, моцарелла, чили масло', price: 22.5, category: 'Пицца' },
+      { name: 'Пицца Четыре сезона 30 см', description: '4 вкуса в одной: пепперони, ветчина с грибами, сырная и томаты с базиликом', price: 23.5, category: 'Пицца' },
+      { name: 'Фокачча с розмарином и солью', description: 'Хрустящая итальянская лепёшка из печи с розмарином и оливковым маслом', price: 6.5, category: 'Выпечка' },
+      { name: 'Морс клюквенный домашний 0.5 л', description: 'Свежесваренный натуральный ягодный морс', price: 4.5, category: 'Напитки' },
+      { name: 'Лимонад цитрусовый 0.5 л', description: 'Домашний лимонад с апельсином, лимоном и мятой', price: 5.5, category: 'Напитки' },
+    ],
+  },
 ];
 
 export function ensureSeedData(dbInstance) {
-  const row = dbInstance.prepare("SELECT count(*) as count FROM places WHERE slug = 'varka'").get();
-  if (row && row.count > 0) return;
-
   const insertPlace = dbInstance.prepare(`
     INSERT INTO places (name, slug, description, pickup_point, group_chat_id, is_active)
     VALUES (@name, @slug, @description, @pickup_point, @group_chat_id, @is_active)
@@ -45,16 +64,21 @@ export function ensureSeedData(dbInstance) {
     VALUES (?, ?, ?, ?, ?, 1)
   `);
 
+  const countItems = dbInstance.prepare('SELECT count(*) as count FROM items WHERE place_id = ?');
+
   const tx = dbInstance.transaction(() => {
     for (const place of DEFAULT_PLACES) {
       insertPlace.run(place);
       const p = dbInstance.prepare('SELECT id FROM places WHERE slug = ?').get(place.slug);
-      for (const item of place.items) {
-        insertItem.run(p.id, item.name, item.description, item.price, item.category);
+      const existing = countItems.get(p.id);
+      if (!existing || existing.count === 0) {
+        for (const item of place.items) {
+          insertItem.run(p.id, item.name, item.description, item.price, item.category);
+        }
       }
     }
   });
 
   tx();
-  console.log('☕️ Кофейня «Varka» успешно инициализирована с актуальным меню и ценами (BYN).');
+  console.log('🍕☕️ Заведения («Kava la Pechi» и «Varka») готовы к приёму предзаказов.');
 }

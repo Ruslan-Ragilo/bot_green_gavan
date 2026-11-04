@@ -15,12 +15,15 @@ export function transportMenuKeyboard(cartTotalQuantity = 0) {
     .text('🚐 Маршрутка 1222-ТК', 'transport:route:1222tk')
     .row();
 
-  // 2. Локальные сервисы и предзаказ
-  const varkaLabel = cartTotalQuantity > 0
-    ? `☕️ Кофейня Varka • Корзина (${cartTotalQuantity})`
-    : '☕️ Кофейня Varka • Предзаказ';
+  // 2. Локальные сервисы и предзаказ (в один аккуратный ряд)
+  keyboard
+    .text('🍕 Пицца', 'catalog:place:kava_la_pechi')
+    .text('☕️ Varka (Кофе)', 'catalog:place:varka')
+    .row();
 
-  keyboard.text(varkaLabel, 'catalog:places').row();
+  if (cartTotalQuantity > 0) {
+    keyboard.text(`🛒 Оформить заказ (${cartTotalQuantity} шт.)`, 'cart:view').row();
+  }
 
   // 3. Поддержка и обратная связь
   keyboard.text('❤️ Поддержка проекта / Связь', 'support:menu');
