@@ -1,5 +1,6 @@
 import { InlineKeyboard } from 'grammy';
 import { config } from '../../config.js';
+import { escapeMarkdown } from '../utils/text.js';
 import { getExpiredSentOrders, atomicUpdateOrderStatus, ORDER_STATUSES } from '../db/repositories/orders.js';
 
 let intervalId = null;
@@ -48,7 +49,7 @@ export async function checkExpiredOrders(bot) {
         await bot.api.sendMessage(
           order.user_id,
           `⚪ *Ваш заказ ${order.order_code} был отменён.*\n\n` +
-          `К сожалению, заведение «${order.place_name}» не успело принять его в течение ${config.orderExpiryMinutes} минут. ` +
+          `К сожалению, заведение «${escapeMarkdown(order.place_name)}» не успело принять его в течение ${config.orderExpiryMinutes} минут. ` +
           `Пожалуйста, попробуйте оформить заказ позже или выберите другое заведение.`,
           {
             parse_mode: 'Markdown',

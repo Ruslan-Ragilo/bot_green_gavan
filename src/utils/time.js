@@ -104,6 +104,19 @@ export function parseCustomTimeInput(inputStr) {
 }
 
 /**
+ * SQLite datetime('now') хранит UTC в виде «YYYY-MM-DD HH:MM:SS» без зоны.
+ * new Date() читает такую строку как локальное время сервера — явно помечаем её как UTC.
+ */
+export function parseDbUtc(value) {
+  if (value instanceof Date) return value;
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(str)) {
+    return new Date(`${str.replace(' ', 'T')}Z`);
+  }
+  return new Date(str);
+}
+
+/**
  * Преобразование timeKey в человекопонятный лейбл
  */
 export function getDesiredTimeLabel(timeKey) {
@@ -113,6 +126,14 @@ export function getDesiredTimeLabel(timeKey) {
     '45m': 'Через 45 минут',
     '60m': 'Через 1 час',
   };
+
+  // Для относительных слотов сразу фиксируем точное время (от момента выбора),
+  // чтобы кухня и жилец видели одно и то же время и при редактировании отсчёт шёл от «сейчас»
+  const RELATIVE_MINUTES = { '30m': 30, '45m': 45, '60m': 60 };
+  if (RELATIVE_MINUTES[timeKey]) {
+    const target = formatMinskTime(new Date(Date.now() + RELATIVE_MINUTES[timeKey] * 60 * 1000));
+    return `${PRESET_LABELS[timeKey]} (к ${target})`;
+  }
 
   if (PRESET_LABELS[timeKey]) {
     return PRESET_LABELS[timeKey];
@@ -152,7 +173,8 @@ export function parseDesiredTime(desiredTime, orderCreatedAt = null) {
   else if (desiredTime.includes('45')) minutes = 45;
   else if (desiredTime.includes('1 час') || desiredTime.includes('60')) minutes = 60;
 
-  const base = orderCreatedAt ? new Date(orderCreatedAt) : new Date();
+  // Старые заказы без точного времени в подписи: считаем от момента создания
+  const base = orderCreatedAt ? parseDbUtc(orderCreatedAt) : new Date();
   const targetDate = new Date(base.getTime() + minutes * 60 * 1000);
   const targetTimeStr = formatMinskTime(targetDate);
 

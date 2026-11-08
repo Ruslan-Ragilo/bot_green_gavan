@@ -3,11 +3,9 @@ import { getUserOrders, getOrderById, cancelOrderByClient, updateOrderDesiredTim
 import { clientOrderKeyboard, orderEditTimeKeyboard } from '../keyboards/client.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
 import { getDesiredTimeLabel, parseCustomTimeInput } from '../utils/time.js';
+import { setPendingInput, getPendingInput, clearPendingInput } from '../utils/pendingInput.js';
 
 export const ordersComposer = new Composer();
-
-// userId → orderId: ожидаем ввод нового времени для редактирования заказа
-const pendingEditTimeUsers = new Map();
 
 // Словарь статусов на русском с эмодзи
 export const STATUS_LABELS = {
@@ -99,18 +97,18 @@ ordersComposer.callbackQuery(/^order:client_view:(\d+)$/, async (ctx) => {
   const statusLabel = STATUS_LABELS[order.status] || order.status;
 
   let text = `📦 *Заказ ${order.order_code}*\n\n`;
-  text += `🏪 *Заведение:* ${order.place_name}\n`;
-  text += `📍 *Точка самовывоза:* ${order.pickup_point}\n`;
-  text += `⏱ *Желаемое время:* ${order.desired_time}\n`;
+  text += `🏪 *Заведение:* ${escapeMarkdown(order.place_name)}\n`;
+  text += `📍 *Точка самовывоза:* ${escapeMarkdown(order.pickup_point)}\n`;
+  text += `⏱ *Желаемое время:* ${escapeMarkdown(order.desired_time)}\n`;
   text += `📊 *Статус:* ${statusLabel}\n\n`;
   text += `*Состав:*\n`;
 
   for (const item of order.items) {
-    text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.price * item.quantity)}\n`;
+    text += `• ${escapeMarkdown(item.item_name)} × ${item.quantity} = ${formatPrice(item.price * item.quantity)}\n`;
   }
 
   if (order.comment) {
-    text += `\n💬 *Пожелание к заказу:* _${order.comment}_\n`;
+    text += `\n💬 *Пожелание к заказу:* ${escapeMarkdown(order.comment)}\n`;
   }
 
   text += `\n💵 *Итого:* *${formatPrice(order.total_price)}* (оплата на месте)\n`;
@@ -237,12 +235,10 @@ ordersComposer.callbackQuery(/^order:change_time:(\d+)$/, async (ctx) => {
     });
   }
 
-  pendingEditTimeUsers.delete(ctx.from.id);
-
   await ctx.editMessageText(
     `✏️ *Изменение времени получения*\n\n` +
     `Заказ: *${order.order_code}*\n` +
-    `Текущее время: _${escapeMarkdown(order.desired_time)}_\n\n` +
+    `Текущее время: ${escapeMarkdown(order.desired_time)}\n\n` +
     `Выберите новое время:`,
     { parse_mode: 'Markdown', reply_markup: orderEditTimeKeyboard(orderId) }
   );
@@ -304,7 +300,7 @@ ordersComposer.callbackQuery(/^order:edit_time_custom:(\d+)$/, async (ctx) => {
     return ctx.answerCallbackQuery({ text: 'Недоступно: заказ уже принят или не найден', show_alert: true });
   }
 
-  pendingEditTimeUsers.set(ctx.from.id, orderId);
+  setPendingInput(ctx.from.id, 'edit_time', { orderId });
 
   await ctx.editMessageText(
     `🕒 *Введите новое время самовывоза*\n\n` +
@@ -320,9 +316,12 @@ ordersComposer.callbackQuery(/^order:edit_time_custom:(\d+)$/, async (ctx) => {
 // Перехват текстового сообщения: ввод нового точного времени для редактирования заказа
 ordersComposer.on('message:text', async (ctx, next) => {
   const userId = ctx.from?.id;
-  if (!userId || !pendingEditTimeUsers.has(userId)) return next();
+  if (!userId || ctx.chat?.type !== 'private') return next();
 
-  const orderId = pendingEditTimeUsers.get(userId);
+  const editState = getPendingInput(userId, 'edit_time');
+  if (!editState) return next();
+
+  const { orderId } = editState;
   const input = ctx.message.text.trim();
   const result = parseCustomTimeInput(input);
 
@@ -341,7 +340,7 @@ ordersComposer.on('message:text', async (ctx, next) => {
     );
   }
 
-  pendingEditTimeUsers.delete(userId);
+  clearPendingInput(userId);
   const newDesiredTime = result.label;
   const updatedOrder = updateOrderDesiredTime(orderId, userId, newDesiredTime);
 

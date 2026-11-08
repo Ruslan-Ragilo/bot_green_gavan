@@ -13,21 +13,14 @@ import { getDesiredTimeLabel, parseCustomTimeInput } from '../utils/time.js';
 import { upsertUser } from '../db/repositories/users.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
 import { config } from '../../config.js';
+import { setPendingInput, getPendingInput, clearPendingInput } from '../utils/pendingInput.js';
 
 export const cartComposer = new Composer();
 
-// Временное хранение данных оформления заказа
+// Черновик пожелания к заказу (до подтверждения)
 const userComments = new Map(); // userId -> commentText
-const pendingCommentUsers = new Map(); // userId -> timeKey
-const pendingCustomTimeUsers = new Map(); // userId -> true
 
-// Словарь понятных названий временных слотов
-export const TIME_LABELS = {
-  asap: 'Как можно скорее (~15–20 мин)',
-  '30m': 'Через 30 минут',
-  '45m': 'Через 45 минут',
-  '60m': 'Через 1 час',
-};
+const md = escapeMarkdown;
 
 // Функция отрисовки текста корзины
 function renderCartText(cart) {
@@ -35,16 +28,34 @@ function renderCartText(cart) {
     return '🛒 *Ваша корзина пуста.*\n\nПерейдите в меню заведений, чтобы выбрать блюда.';
   }
 
-  let text = `🛒 *Корзина заказа в «${cart.place.name}»*\n`;
-  text += `📍 *Точка самовывоза:* ${cart.place.pickup_point}\n\n`;
+  let text = `🛒 *Корзина заказа* в «${md(cart.place.name)}»\n`;
+  text += `📍 *Точка самовывоза:* ${md(cart.place.pickup_point)}\n\n`;
 
   for (let i = 0; i < cart.items.length; i++) {
     const item = cart.items[i];
-    text += `${i + 1}. *${item.item_name}* — ${item.quantity} шт. × ${formatPrice(item.price)} = *${formatPrice(item.subtotal)}*\n`;
+    text += `${i + 1}. ${md(item.item_name)} — ${item.quantity} шт. × ${formatPrice(item.price)} = *${formatPrice(item.subtotal)}*\n`;
   }
 
   text += `\n💵 *Итого к оплате при получении:* ${formatPrice(cart.totalPrice)}\n`;
   text += `\nНажмите «Выбрать время получения», чтобы завершить предзаказ.`;
+  return text;
+}
+
+// Экран подтверждения предзаказа (пользовательский текст — только вне Markdown-сущностей и экранирован)
+function renderConfirmText(cart, desiredTimeLabel, comment, footer = 'Нажмите «Подтвердить предзаказ», чтобы отправить заказ в заведение:') {
+  let text = `📋 *Подтверждение предзаказа*\n\n`;
+  text += `🏪 *Заведение:* ${md(cart.place.name)}\n`;
+  text += `📍 *Точка самовывоза:* ${md(cart.place.pickup_point)}\n`;
+  text += `⏱ *Желаемое время:* ${md(desiredTimeLabel)}\n\n`;
+  text += `*Состав заказа:*\n`;
+
+  for (const item of cart.items) {
+    text += `• ${md(item.item_name)} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
+  }
+
+  text += `\n💬 *Пожелание к заказу:* ${comment ? md(comment) : '_не указано_'}\n`;
+  text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
+  text += footer;
   return text;
 }
 
@@ -145,6 +156,7 @@ cartComposer.callbackQuery(/^cart:del:(\d+)$/, async (ctx) => {
 // Полная очистка корзины
 cartComposer.callbackQuery('cart:clear', async (ctx) => {
   clearCart(ctx.from.id);
+  userComments.delete(ctx.from.id);
   await ctx.answerCallbackQuery({ text: 'Корзина очищена' });
 
   await ctx.editMessageText('🛒 *Корзина пуста.*', {
@@ -156,7 +168,6 @@ cartComposer.callbackQuery('cart:clear', async (ctx) => {
 // Шаг оформления: выбор времени получения
 cartComposer.callbackQuery('cart:checkout:time', async (ctx) => {
   await ctx.answerCallbackQuery();
-  pendingCustomTimeUsers.delete(ctx.from.id);
   const cart = getCart(ctx.from.id);
 
   if (cart.isEmpty) {
@@ -166,7 +177,7 @@ cartComposer.callbackQuery('cart:checkout:time', async (ctx) => {
   }
 
   const text = (
-    `⏱ *К какому времени приготовить заказ в «${cart.place.name}»?*\n\n` +
+    `⏱ *К какому времени приготовить заказ?*\n🏪 ${md(cart.place.name)}\n\n` +
     `Выберите подходящее время самовывоза или укажите своё:`
   );
 
@@ -180,7 +191,7 @@ cartComposer.callbackQuery('cart:checkout:time', async (ctx) => {
 cartComposer.callbackQuery('time:custom_prompt', async (ctx) => {
   await ctx.answerCallbackQuery();
   const userId = ctx.from.id;
-  pendingCustomTimeUsers.set(userId, true);
+  setPendingInput(userId, 'custom_time');
 
   const text = (
     `🕒 *Введите желаемое время самовывоза*\n\n` +
@@ -203,7 +214,6 @@ cartComposer.callbackQuery(/^time:([a-z0-9_]+)$/, async (ctx) => {
   if (timeKey === 'custom_prompt') return;
 
   await ctx.answerCallbackQuery();
-  pendingCustomTimeUsers.delete(ctx.from.id);
   const desiredTimeLabel = getDesiredTimeLabel(timeKey);
   const cart = getCart(ctx.from.id);
 
@@ -212,25 +222,7 @@ cartComposer.callbackQuery(/^time:([a-z0-9_]+)$/, async (ctx) => {
   }
 
   const comment = userComments.get(ctx.from.id);
-
-  let text = `📋 *Подтверждение предзаказа*\n\n`;
-  text += `🏪 *Заведение:* ${cart.place.name}\n`;
-  text += `📍 *Точка самовывоза:* ${cart.place.pickup_point}\n`;
-  text += `⏱ *Желаемое время:* ${desiredTimeLabel}\n\n`;
-  text += `*Состав заказа:*\n`;
-
-  for (const item of cart.items) {
-    text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
-  }
-
-  if (comment) {
-    text += `\n💬 *Пожелание к заказу:* _${comment}_\n`;
-  } else {
-    text += `\n💬 *Пожелание к заказу:* _не указано_\n`;
-  }
-
-  text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
-  text += `Нажмите «Подтвердить предзаказ», чтобы отправить заказ в заведение:`;
+  const text = renderConfirmText(cart, desiredTimeLabel, comment);
 
   await ctx.editMessageText(text, {
     parse_mode: 'Markdown',
@@ -243,7 +235,7 @@ cartComposer.callbackQuery(/^order:comment_prompt:([a-z0-9_]+)$/, async (ctx) =>
   await ctx.answerCallbackQuery();
   const timeKey = ctx.match[1];
   const userId = ctx.from.id;
-  pendingCommentUsers.set(userId, timeKey);
+  setPendingInput(userId, 'comment', { timeKey });
 
   const text = (
     `💬 *Пожелание к заказу*\n\n` +
@@ -263,12 +255,12 @@ cartComposer.callbackQuery(/^order:comment_prompt:([a-z0-9_]+)$/, async (ctx) =>
 // Перехват текстового сообщения (ввод точного времени или комментария)
 cartComposer.on('message:text', async (ctx, next) => {
   const userId = ctx.from?.id;
-  if (!userId) {
+  if (!userId || ctx.chat?.type !== 'private') {
     return next();
   }
 
   // 1. Проверяем ввод точного времени самовывоза
-  if (pendingCustomTimeUsers.has(userId)) {
+  if (getPendingInput(userId, 'custom_time')) {
     const input = ctx.message.text.trim();
     const result = parseCustomTimeInput(input);
 
@@ -296,7 +288,7 @@ cartComposer.on('message:text', async (ctx, next) => {
       );
     }
 
-    pendingCustomTimeUsers.delete(userId);
+    clearPendingInput(userId);
     const timeKey = result.timeKey;
     const desiredTimeLabel = result.label;
     const cart = getCart(userId);
@@ -306,25 +298,7 @@ cartComposer.on('message:text', async (ctx, next) => {
     }
 
     const comment = userComments.get(userId);
-
-    let text = `📋 *Подтверждение предзаказа*\n\n`;
-    text += `🏪 *Заведение:* ${cart.place.name}\n`;
-    text += `📍 *Точка самовывоза:* ${cart.place.pickup_point}\n`;
-    text += `⏱ *Желаемое время:* ${desiredTimeLabel}\n\n`;
-    text += `*Состав заказа:*\n`;
-
-    for (const item of cart.items) {
-      text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
-    }
-
-    if (comment) {
-      text += `\n💬 *Пожелание к заказу:* _${comment}_\n`;
-    } else {
-      text += `\n💬 *Пожелание к заказу:* _не указано_\n`;
-    }
-
-    text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
-    text += `Нажмите «Подтвердить предзаказ», чтобы отправить заказ в заведение:`;
+    const text = renderConfirmText(cart, desiredTimeLabel, comment);
 
     return ctx.reply(text, {
       parse_mode: 'Markdown',
@@ -333,10 +307,11 @@ cartComposer.on('message:text', async (ctx, next) => {
   }
 
   // 2. Проверяем ввод комментария к заказу
-  if (pendingCommentUsers.has(userId)) {
-    const timeKey = pendingCommentUsers.get(userId);
-    pendingCommentUsers.delete(userId);
-    const comment = ctx.message.text.trim();
+  const commentState = getPendingInput(userId, 'comment');
+  if (commentState) {
+    const { timeKey } = commentState;
+    clearPendingInput(userId);
+    const comment = ctx.message.text.trim().slice(0, 500);
     userComments.set(userId, comment);
 
     const desiredTimeLabel = getDesiredTimeLabel(timeKey);
@@ -346,19 +321,7 @@ cartComposer.on('message:text', async (ctx, next) => {
       return ctx.reply('Корзина пуста.', { reply_markup: emptyCartKeyboard() });
     }
 
-    let text = `📋 *Подтверждение предзаказа*\n\n`;
-    text += `🏪 *Заведение:* ${cart.place.name}\n`;
-    text += `📍 *Точка самовывоза:* ${cart.place.pickup_point}\n`;
-    text += `⏱ *Желаемое время:* ${desiredTimeLabel}\n\n`;
-    text += `*Состав заказа:*\n`;
-
-    for (const item of cart.items) {
-      text += `• ${item.item_name} × ${item.quantity} = ${formatPrice(item.subtotal)}\n`;
-    }
-
-    text += `\n💬 *Пожелание к заказу:* _${comment}_\n`;
-    text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
-    text += `Пожелание сохранено! Нажмите «Подтвердить предзаказ»:`;
+    const text = renderConfirmText(cart, desiredTimeLabel, comment, 'Пожелание сохранено! Нажмите «Подтвердить предзаказ»:');
 
     return ctx.reply(text, {
       parse_mode: 'Markdown',
@@ -375,10 +338,16 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
   const desiredTimeLabel = getDesiredTimeLabel(timeKey);
   const userId = ctx.from.id;
 
+  // Повторное нажатие «Подтвердить»: заказ уже создан, корзина очищена
+  const cart = getCart(userId);
+  if (cart.isEmpty) {
+    return ctx.answerCallbackQuery({
+      text: 'Этот заказ уже оформлен (или корзина пуста). Статус — в «Мои заказы».',
+      show_alert: true,
+    });
+  }
+
   const comment = userComments.get(userId) || null;
-  userComments.delete(userId);
-  pendingCommentUsers.delete(userId);
-  pendingCustomTimeUsers.delete(userId);
 
   // Всегда сохраняем/обновляем профиль пользователя перед созданием заказа
   upsertUser({
@@ -390,7 +359,6 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
 
   let order;
   try {
-    const cart = getCart(userId);
     order = createOrderFromCart({
       userId,
       placeId: cart.place.id,
@@ -398,18 +366,22 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
       comment,
     });
   } catch (error) {
+    // Пожелание не теряем — жилец может поправить корзину и подтвердить снова
+    console.error(`[Error] Не удалось оформить заказ жильца ${userId}:`, error);
     return ctx.answerCallbackQuery({
-      text: `Ошибка: ${error.message}`,
+      text: `Не удалось оформить заказ: ${error.message}`,
       show_alert: true,
     });
   }
+
+  userComments.delete(userId);
 
   await ctx.answerCallbackQuery({ text: `Заказ ${order.order_code} успешно оформлен!` });
 
   // 1. Формируем карточку заказа для группы заведения с выделенным блоком пожелания
   const clientName = escapeMarkdown(order.first_name || 'Жилец');
   const clientUsername = order.username ? `(@${escapeMarkdown(order.username)})` : '';
-  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* *${escapeMarkdown(order.comment)}*\n` : '';
+  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* ${escapeMarkdown(order.comment)}\n` : '';
 
   const staffCardText = (
     `🔔 *НОВЫЙ ЗАКАЗ ${order.order_code}*\n\n` +
@@ -468,7 +440,7 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
   );
 
   if (order.comment) {
-    clientConfirmationText += `💬 *Ваше пожелание:* _${escapeMarkdown(order.comment)}_\n`;
+    clientConfirmationText += `💬 *Ваше пожелание:* ${escapeMarkdown(order.comment)}\n`;
   }
 
   clientConfirmationText += (

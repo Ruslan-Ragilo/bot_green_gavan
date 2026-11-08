@@ -28,7 +28,7 @@ function formatGroupCardText(order, staffName) {
 
   const clientName = escapeMarkdown(order.first_name || 'Жилец');
   const clientUsername = order.username ? `(@${escapeMarkdown(order.username)})` : '';
-  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* _${escapeMarkdown(order.comment)}_\n` : '';
+  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* ${escapeMarkdown(order.comment)}\n` : '';
   const readyBlock = (order.ready_at && ['accepted', 'ready'].includes(order.status))
     ? `\n⏱ *Ориентир готовности:* ~${order.ready_at}`
     : '';
@@ -105,9 +105,9 @@ staffComposer.callbackQuery(/^staff:accept(?:_time)?:(\d+)(?::(\d+))?$/, async (
     await ctx.api.sendMessage(
       order.user_id,
       `🔵 *Ваш заказ ${order.order_code} принят в работу!*\n\n` +
-      `🏪 Заведение: «${order.place_name}»\n` +
+      `🏪 Заведение: «${escapeMarkdown(order.place_name)}»\n` +
       `⏱ *Время готовности:* *~${readyTimeStr}* (через ${cookingMinutes} мин${queueNote})\n` +
-      `📍 Точка самовывоза: ${order.pickup_point}\n\n` +
+      `📍 Точка самовывоза: ${escapeMarkdown(order.pickup_point)}\n\n` +
       `Мы сразу пришлем уведомление, когда заказ будет готов к выдаче!`,
       { parse_mode: 'Markdown' }
     );
@@ -171,9 +171,9 @@ staffComposer.callbackQuery(/^staff:accept_target:(\d+)$/, async (ctx) => {
     await ctx.api.sendMessage(
       order.user_id,
       `🔵 *Ваш заказ ${order.order_code} принят в работу!*\n\n` +
-      `🏪 Заведение: «${order.place_name}»\n` +
+      `🏪 Заведение: «${escapeMarkdown(order.place_name)}»\n` +
       `⏱ *Время готовности:* *к ~${targetTimeStr}*\n` +
-      `📍 Точка самовывоза: ${order.pickup_point}\n\n` +
+      `📍 Точка самовывоза: ${escapeMarkdown(order.pickup_point)}\n\n` +
       `Кухня приготовит всё ровно к назначенному времени. Мы пришлем уведомление, когда заказ будет готов к выдаче!`,
       { parse_mode: 'Markdown' }
     );
@@ -253,9 +253,9 @@ staffComposer.callbackQuery(/^staff:accept_delay:(\d+):(\d+)$/, async (ctx) => {
     await ctx.api.sendMessage(
       order.user_id,
       `⚠️ *Внимание: задержка на кухне!*\n\n` +
-      `Заведение «${order.place_name}» приняло ваш заказ ${order.order_code}, но из-за загрузки кухни время увеличено на *+${delayMinutes} мин*.\n\n` +
+      `Заведение «${escapeMarkdown(order.place_name)}» приняло ваш заказ ${order.order_code}, но из-за загрузки кухни время увеличено на *+${delayMinutes} мин*.\n\n` +
       `⏱ *Новое время готовности:* *~${newTargetStr}*\n` +
-      `📍 Точка самовывоза: ${order.pickup_point}\n\n` +
+      `📍 Точка самовывоза: ${escapeMarkdown(order.pickup_point)}\n\n` +
       `Если вам подходит это время — нажмите «Подожду». Если не готовы ждать — можете сразу отменить заказ:`,
       {
         parse_mode: 'Markdown',
@@ -312,7 +312,7 @@ staffComposer.callbackQuery(/^staff:ready:(\d+)$/, async (ctx) => {
     await ctx.api.sendMessage(
       order.user_id,
       `🎉 *Ваш заказ ${order.order_code} готов!*\n\n` +
-      `📍 *Точка выдачи:* ${order.pickup_point}\n` +
+      `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n` +
       `🔢 *Код выдачи:* *${order.order_code}*\n` +
       `💵 *Сумма к оплате:* ${formatPrice(order.total_price)}\n\n` +
       `Подойдите к точке выдачи и назовите код заказа сотруднику.`,
@@ -423,7 +423,7 @@ staffComposer.callbackQuery(/^staff:cancel:(\d+)$/, async (ctx) => {
   try {
     await ctx.api.sendMessage(
       order.user_id,
-      `❌ *К сожалению, ваш заказ ${order.order_code} был отклонён заведением «${order.place_name}».*\n\n` +
+      `❌ *К сожалению, ваш заказ ${order.order_code} был отклонён* заведением «${escapeMarkdown(order.place_name)}».\n\n` +
       `Возможно, закончились ингредиенты или заведение перегружено. Приносим извинения!`,
       { parse_mode: 'Markdown' }
     );
@@ -510,7 +510,7 @@ staffComposer.callbackQuery(/^staff:cancel_reason:(\d+):(no_ingredients|closing|
   try {
     await ctx.api.sendMessage(
       order.user_id,
-      `❌ *Ваш заказ ${order.order_code} был отклонён заведением «${order.place_name}».*\n\n` +
+      `❌ *Ваш заказ ${order.order_code} был отклонён* заведением «${escapeMarkdown(order.place_name)}».\n\n` +
       `Причина: *${reasonText}*.\n\n` +
       `Приносим извинения! Вы можете оформить заказ позже.`,
       {
@@ -574,9 +574,9 @@ staffComposer.callbackQuery(/^staff:shift_time:(\d+):(\d+)$/, async (ctx) => {
     await ctx.api.sendMessage(
       order.user_id,
       `⏱ *Небольшая задержка по заказу ${order.order_code}*\n\n` +
-      `🏪 Заведение «${order.place_name}» сдвинуло время готовности на *+${extraMinutes} мин*.\n\n` +
+      `🏪 Заведение «${escapeMarkdown(order.place_name)}» сдвинуло время готовности на *+${extraMinutes} мин*.\n\n` +
       `🕐 Новое время готовности: *~${newReadyAt}*\n` +
-      `📍 Точка самовывоза: ${order.pickup_point}`,
+      `📍 Точка самовывоза: ${escapeMarkdown(order.pickup_point)}`,
       { parse_mode: 'Markdown', reply_markup: shiftKeyboard }
     );
   } catch (err) {

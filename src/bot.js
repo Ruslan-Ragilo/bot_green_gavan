@@ -9,6 +9,7 @@ import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 import { transportComposer } from './handlers/transport.js';
 import { supportComposer } from './handlers/support.js';
+import { resetPendingInputMiddleware } from './utils/pendingInput.js';
 
 export function createBot() {
   const botOptions = {
@@ -67,6 +68,9 @@ export function createBot() {
       console.log(`⏱️ [Update ${ctx.update.update_id}] Обработан за ${duration} мс (${action})`);
     }
   });
+
+  // Сброс ожидания текстового ввода при навигации кнопками/командами
+  bot.use(resetPendingInputMiddleware);
 
   // Подключаем модули обработчиков
   bot.use(adminComposer);
