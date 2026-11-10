@@ -87,8 +87,13 @@ export function emptyCartKeyboard() {
 }
 
 // Выбор времени готовности заказа
-export function timeSelectionKeyboard() {
-  return new InlineKeyboard()
+// suggestion — ближайший свободный слот { timeKey, label }, если выбранное время занято
+export function timeSelectionKeyboard(suggestion = null) {
+  const keyboard = new InlineKeyboard();
+  if (suggestion) {
+    keyboard.text(`✅ Оформить к ${suggestion.label}`, `time:${suggestion.timeKey}`).row();
+  }
+  return keyboard
     .text('⚡ Как можно скорее (~15–20 мин)', 'time:asap').row()
     .text('🕒 Через 30 минут', 'time:30m')
     .text('🕓 Через 45 минут', 'time:45m').row()
@@ -123,8 +128,12 @@ export function clientOrderKeyboard(order) {
 }
 
 // Выбор нового времени при редактировании заказа
-export function orderEditTimeKeyboard(orderId) {
-  return new InlineKeyboard()
+export function orderEditTimeKeyboard(orderId, suggestion = null) {
+  const keyboard = new InlineKeyboard();
+  if (suggestion) {
+    keyboard.text(`✅ Перенести на ${suggestion.label}`, `order:edit_time:${orderId}:${suggestion.timeKey}`).row();
+  }
+  return keyboard
     .text('⚡ Как можно скорее (~15–20 мин)', `order:edit_time:${orderId}:asap`).row()
     .text('🕒 Через 30 минут', `order:edit_time:${orderId}:30m`)
     .text('🕓 Через 45 минут', `order:edit_time:${orderId}:45m`).row()

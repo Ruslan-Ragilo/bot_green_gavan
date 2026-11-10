@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import { parseDesiredTime } from '../utils/time.js';
+import { getOrderTimeInfo } from '../utils/time.js';
 
 /**
  * Клавиатура управления заказом для сотрудников в Telegram-группе заведения.
@@ -9,7 +9,7 @@ export function staffOrderKeyboard(order) {
   const keyboard = new InlineKeyboard();
 
   if (order.status === 'sent') {
-    const timeInfo = parseDesiredTime(order.desired_time, order.created_at);
+    const timeInfo = getOrderTimeInfo(order);
 
     if (timeInfo.isAsap) {
       // Заказ «Как можно скорее»
@@ -38,10 +38,11 @@ export function staffOrderKeyboard(order) {
       .text('❌ Отменить', `staff:cancel_prompt:${order.id}`);
   } else if (order.status === 'ready') {
     keyboard
-      .text('📦 Заказ выдан', `staff:issued:${order.id}`);
+      .text('📦 Заказ выдан', `staff:issued:${order.id}`)
+      .text('🙅 Не забрали', `staff:no_show_prompt:${order.id}`);
   }
 
-  // Для финальных статусов (issued, cancelled, expired) кнопок нет
+  // Для финальных статусов (issued, cancelled, expired, no_show) кнопок нет
   return keyboard;
 }
 
@@ -51,5 +52,12 @@ export function cancelReasonKeyboard(orderId) {
     .text('🥬 Нет ингредиентов', `staff:cancel_reason:${orderId}:no_ingredients`).row()
     .text('🔒 Заведение закрывается', `staff:cancel_reason:${orderId}:closing`).row()
     .text('🔥 Перегружена кухня', `staff:cancel_reason:${orderId}:overloaded`).row()
+    .text('◀️ Назад', `staff:cancel_back:${orderId}`);
+}
+
+// Подтверждение «Не забрали»
+export function noShowConfirmKeyboard(orderId) {
+  return new InlineKeyboard()
+    .text('✅ Да, клиент не пришёл', `staff:no_show:${orderId}`).row()
     .text('◀️ Назад', `staff:cancel_back:${orderId}`);
 }

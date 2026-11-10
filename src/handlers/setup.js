@@ -37,6 +37,7 @@ function buildSetupKeyboard(chatId) {
   keyboard.text('➕ Создать новое заведение', 'setup:new_prompt').row();
 
   if (linkedPlace) {
+    keyboard.text('🎛 Пульт кухни', `kp:open:${linkedPlace.id}`).row();
     keyboard.text('🧪 Отправить тестовый заказ', `setup:test_order:${linkedPlace.id}`).row();
     keyboard.text('👨‍🍳 Я сотрудник (получить доступ)', `setup:join_staff:${linkedPlace.id}`).row();
   }

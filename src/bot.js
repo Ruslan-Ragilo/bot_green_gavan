@@ -9,6 +9,7 @@ import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 import { transportComposer } from './handlers/transport.js';
 import { supportComposer } from './handlers/support.js';
+import { kitchenComposer } from './handlers/kitchen.js';
 import { resetPendingInputMiddleware } from './utils/pendingInput.js';
 
 export function createBot() {
@@ -82,6 +83,7 @@ export function createBot() {
   bot.use(cartComposer);
   bot.use(ordersComposer);
   bot.use(staffComposer);
+  bot.use(kitchenComposer);
 
   // Пересылка входящих текстовых сообщений и ответов жильцов администратору
   bot.on('message:text', async (ctx) => {
@@ -148,6 +150,9 @@ export async function setupBotCommands(bot) {
 
     // 2. Команды для групп (кухня, заведения)
     await bot.api.setMyCommands([
+      { command: 'panel', description: '🎛 Пульт кухни: пауза, стоп-лист, лимит' },
+      { command: 'report', description: '📊 Отчёт за сегодня' },
+      { command: 'hours', description: '🕘 Часы работы (/hours 9:00-22:00)' },
       { command: 'setup_place', description: '⚙️ Настройка заведения' },
       { command: 'menu_items', description: '📋 Меню заведения' },
       { command: 'add_item', description: '🍕 Добавить блюдо в меню' },

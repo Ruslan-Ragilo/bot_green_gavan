@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS places (
   pickup_point TEXT NOT NULL,
   group_chat_id INTEGER,
   is_active INTEGER NOT NULL DEFAULT 1,
+  -- Пульт кухни: пауза приёма (UTC ISO), часы работы (ЧЧ:ММ по Минску), лимит заказов на слот
+  paused_until TEXT,
+  open_time TEXT,
+  close_time TEXT,
+  slot_capacity INTEGER,
+  last_report_date TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -77,13 +83,13 @@ CREATE TABLE IF NOT EXISTS cart_items (
 );
 
 -- Заказы
--- Статусы строго: sent, accepted, ready, issued, cancelled, expired
+-- Статусы строго: sent, accepted, ready, issued, cancelled, expired, no_show
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   order_code TEXT NOT NULL,
   user_id INTEGER NOT NULL REFERENCES users(telegram_id),
   place_id INTEGER NOT NULL REFERENCES places(id),
-  status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent', 'accepted', 'ready', 'issued', 'cancelled', 'expired')),
+  status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent', 'accepted', 'ready', 'issued', 'cancelled', 'expired', 'no_show')),
   fulfillment_type TEXT NOT NULL DEFAULT 'pickup',
   pickup_point TEXT NOT NULL,
   desired_time TEXT NOT NULL,
@@ -92,6 +98,15 @@ CREATE TABLE IF NOT EXISTS orders (
   group_message_id INTEGER,
   cooking_minutes INTEGER DEFAULT 20,
   ready_at TEXT,
+  -- Точный момент, к которому жилец хочет получить заказ (UTC ISO)
+  target_at TEXT,
+  -- Причина отмены: client, staff, no_ingredients, closing, overloaded, admin
+  cancel_reason TEXT,
+  -- Отметки отправленных напоминаний (чтобы не дублировать)
+  accept_reminded_at TEXT,
+  ready_reminded_at TEXT,
+  client_pickup_reminded_at TEXT,
+  staff_pickup_reminded_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -120,6 +135,7 @@ CREATE TABLE IF NOT EXISTS order_status_history (
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_place_id ON orders(place_id);
+-- Индексы по колонкам, добавленным миграциями, создаются в migrations.js (старая база их ещё не имеет)
 CREATE INDEX IF NOT EXISTS idx_cart_user_place ON cart_items(user_id, place_id);
 CREATE INDEX IF NOT EXISTS idx_staff_user_place ON place_staff(user_id, place_id);
 `;

@@ -5,6 +5,7 @@ import { config, validateConfig } from './config.js';
 import { createBot, setupBotCommands } from './src/bot.js';
 import { startExpiredOrdersJob, stopExpiredOrdersJob } from './src/jobs/expiredOrders.js';
 import { startTransportUpdaterJob, stopTransportUpdaterJob } from './src/jobs/transportUpdater.js';
+import { startKitchenJobs, stopKitchenJobs } from './src/jobs/kitchenJobs.js';
 
 async function main() {
   console.log('🚀 Инициализация Telegram-бота предзаказа для ЖК «Зелёная Гавань»...');
@@ -18,6 +19,9 @@ async function main() {
   // Запускаем фоновую проверку просроченных заказов (setInterval раз в минуту)
   startExpiredOrdersJob(bot);
 
+  // Напоминания кухне/жильцам и ежедневные отчёты заведениям (раз в минуту)
+  startKitchenJobs(bot);
+
   // Запускаем ночной крон актуализации расписания транспорта (раз в сутки в 04:00)
   startTransportUpdaterJob(bot);
 
@@ -27,6 +31,7 @@ async function main() {
   const shutdown = async (signal) => {
     console.log(`\n🛑 Получен сигнал ${signal}. Завершение работы бота...`);
     stopExpiredOrdersJob();
+    stopKitchenJobs();
     stopTransportUpdaterJob();
 
     if (server) {

@@ -3,6 +3,13 @@ import { getActivePlaces, getPlaceById, getPlaceBySlug, getPlaceItems, getItemBy
 import { addToCart, getCart } from '../db/repositories/cart.js';
 import { placesKeyboard, placeMenuKeyboard, itemDetailKeyboard } from '../keyboards/client.js';
 import { formatPrice } from '../utils/text.js';
+import { getAcceptanceState } from '../services/placeStatus.js';
+
+// Предупреждение в меню, если заведение на паузе или закрыто (меню остаётся доступным для просмотра)
+function acceptanceBanner(place) {
+  const state = getAcceptanceState(place);
+  return state.accepting ? '' : `${state.text}\n\n`;
+}
 
 export const catalogComposer = new Composer();
 
@@ -29,6 +36,7 @@ catalogComposer.callbackQuery('catalog:places', async (ctx) => {
       `🏪 *${place.name}*\n` +
       (place.description ? `_${place.description}_\n\n` : '\n') +
       `📍 *Точка самовывоза:* ${place.pickup_point}\n\n` +
+      acceptanceBanner(place) +
       `Выберите позиции из меню:`
     );
 
@@ -69,6 +77,7 @@ catalogComposer.callbackQuery(/^(?:place:|catalog:place:)(.+)$/, async (ctx) => 
     `🏪 *${place.name}*\n` +
     (place.description ? `_${place.description}_\n\n` : '\n') +
     `📍 *Точка самовывоза:* ${place.pickup_point}\n\n` +
+    acceptanceBanner(place) +
     `Выберите блюдо из меню:`
   );
 

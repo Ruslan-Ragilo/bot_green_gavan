@@ -448,7 +448,7 @@ adminComposer.command('order', async (ctx) => {
   text += `\n💵 *Итого:* *${formatPrice(order.total_price)}*`;
 
   const keyboard = new InlineKeyboard();
-  if (order.status !== 'issued' && order.status !== 'cancelled') {
+  if (!['issued', 'cancelled', 'expired', 'no_show'].includes(order.status)) {
     keyboard.text('❌ Принудительно отменить заказ', `admin:cancel_order:${order.id}`).row();
   }
   keyboard.text('◀️ В админ-меню', 'admin:main');

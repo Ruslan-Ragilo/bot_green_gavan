@@ -10,10 +10,16 @@ export const ORDER_STATUSES = {
   ISSUED: 'issued',
   CANCELLED: 'cancelled',
   EXPIRED: 'expired',
+  NO_SHOW: 'no_show',
 };
 
+// Статусы, при которых заказ ещё «живой» и занимает слот кухни
+export const ACTIVE_STATUSES = ['sent', 'accepted', 'ready'];
+// Финальные статусы — с заказом больше ничего нельзя сделать
+export const FINAL_STATUSES = ['issued', 'cancelled', 'expired', 'no_show'];
+
 // Создание заказа из корзины в единой атомарной транзакции
-export function createOrderFromCart({ userId, placeId, desiredTime, comment = null }) {
+export function createOrderFromCart({ userId, placeId, desiredTime, targetAt = null, comment = null }) {
   const transaction = db.transaction(() => {
     const cart = getCart(userId);
 
@@ -40,11 +46,11 @@ export function createOrderFromCart({ userId, placeId, desiredTime, comment = nu
     const insertOrderStmt = db.prepare(`
       INSERT INTO orders (
         order_code, user_id, place_id, status,
-        fulfillment_type, pickup_point, desired_time, comment,
+        fulfillment_type, pickup_point, desired_time, target_at, comment,
         total_price, created_at, updated_at
       ) VALUES (
         'pending', @userId, @placeId, 'sent',
-        'pickup', @pickupPoint, @desiredTime, @comment,
+        'pickup', @pickupPoint, @desiredTime, @targetAt, @comment,
         @totalPrice, datetime('now'), datetime('now')
       )
     `);
@@ -54,6 +60,7 @@ export function createOrderFromCart({ userId, placeId, desiredTime, comment = nu
       placeId,
       pickupPoint: place.pickup_point,
       desiredTime,
+      targetAt,
       comment,
       totalPrice: cart.totalPrice,
     });
@@ -143,6 +150,10 @@ export function atomicUpdateOrderStatus(orderId, expectedStatus, nextStatus, cha
     extraSql += ', ready_at = ?';
     params.push(extraFields.ready_at);
   }
+  if (extraFields.cancel_reason !== undefined) {
+    extraSql += ', cancel_reason = ?';
+    params.push(extraFields.cancel_reason);
+  }
 
   params.push(orderId, expectedStatus);
 
@@ -215,19 +226,19 @@ export function cancelOrderByClient(orderId, clientUserId, allowAccepted = true)
   if (!order || order.user_id !== clientUserId) return false;
   const allowed = allowAccepted ? [ORDER_STATUSES.SENT, ORDER_STATUSES.ACCEPTED] : [ORDER_STATUSES.SENT];
   if (!allowed.includes(order.status)) return false;
-  return atomicUpdateOrderStatus(orderId, order.status, ORDER_STATUSES.CANCELLED, clientUserId);
+  return atomicUpdateOrderStatus(orderId, order.status, ORDER_STATUSES.CANCELLED, clientUserId, { cancel_reason: 'client' });
 }
 
 // Отмена заказа персоналом заведения (если заказ ещё не выдан, не отменен и не просрочен)
-export function cancelOrderByStaff(orderId, staffUserId) {
+export function cancelOrderByStaff(orderId, staffUserId, reason = 'staff') {
   const order = getOrderById(orderId);
   if (!order) return false;
 
-  if (['issued', 'cancelled', 'expired'].includes(order.status)) {
+  if (FINAL_STATUSES.includes(order.status)) {
     return false;
   }
 
-  return atomicUpdateOrderStatus(orderId, order.status, ORDER_STATUSES.CANCELLED, staffUserId);
+  return atomicUpdateOrderStatus(orderId, order.status, ORDER_STATUSES.CANCELLED, staffUserId, { cancel_reason: reason });
 }
 
 // Получение просроченных заказов в статусе 'sent', ожидающих дольше заданного таймаута
@@ -325,7 +336,7 @@ export function getOrdersStatistics() {
   const todayStmt = db.prepare(`
     SELECT
       count(*) as total_count,
-      COALESCE(sum(CASE WHEN status NOT IN ('cancelled', 'expired') THEN total_price ELSE 0 END), 0) as total_revenue,
+      COALESCE(sum(CASE WHEN status NOT IN ('cancelled', 'expired', 'no_show') THEN total_price ELSE 0 END), 0) as total_revenue,
       sum(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as issued_count,
       sum(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count
     FROM orders
@@ -336,7 +347,7 @@ export function getOrdersStatistics() {
   const weekStmt = db.prepare(`
     SELECT
       count(*) as total_count,
-      COALESCE(sum(CASE WHEN status NOT IN ('cancelled', 'expired') THEN total_price ELSE 0 END), 0) as total_revenue
+      COALESCE(sum(CASE WHEN status NOT IN ('cancelled', 'expired', 'no_show') THEN total_price ELSE 0 END), 0) as total_revenue
     FROM orders
     WHERE created_at >= datetime('now', '-7 days')
   `);
@@ -345,7 +356,7 @@ export function getOrdersStatistics() {
   const allTimeStmt = db.prepare(`
     SELECT
       count(*) as total_count,
-      COALESCE(sum(CASE WHEN status NOT IN ('cancelled', 'expired') THEN total_price ELSE 0 END), 0) as total_revenue,
+      COALESCE(sum(CASE WHEN status NOT IN ('cancelled', 'expired', 'no_show') THEN total_price ELSE 0 END), 0) as total_revenue,
       sum(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as issued_count
     FROM orders
   `);
@@ -384,11 +395,11 @@ export function cancelOrderByAdmin(orderId, adminId) {
   const transaction = db.transaction(() => {
     const order = getOrderById(orderId);
     if (!order) return false;
-    if (order.status === 'issued' || order.status === 'cancelled') return false;
+    if (FINAL_STATUSES.includes(order.status)) return false;
 
     db.prepare(`
       UPDATE orders
-      SET status = 'cancelled', updated_at = datetime('now')
+      SET status = 'cancelled', cancel_reason = 'admin', updated_at = datetime('now')
       WHERE id = ?
     `).run(orderId);
 
@@ -403,14 +414,14 @@ export function cancelOrderByAdmin(orderId, adminId) {
 }
 
 // Обновление желаемого времени получения жильцом (только пока статус 'sent')
-export function updateOrderDesiredTime(orderId, userId, newDesiredTime) {
+export function updateOrderDesiredTime(orderId, userId, newDesiredTime, targetAt = null) {
   const order = getOrderById(orderId);
   if (!order || order.user_id !== userId) return null;
   if (order.status !== ORDER_STATUSES.SENT) return null;
 
   const result = db.prepare(
-    `UPDATE orders SET desired_time = ?, updated_at = datetime('now') WHERE id = ? AND status = 'sent'`
-  ).run(newDesiredTime, orderId);
+    `UPDATE orders SET desired_time = ?, target_at = ?, updated_at = datetime('now') WHERE id = ? AND status = 'sent'`
+  ).run(newDesiredTime, targetAt, orderId);
 
   return result.changes > 0 ? getOrderById(orderId) : null;
 }
@@ -418,10 +429,134 @@ export function updateOrderDesiredTime(orderId, userId, newDesiredTime) {
 // Сдвиг времени готовности персоналом (только в статусе 'accepted')
 export function setOrderReadyAt(orderId, newReadyAt) {
   const result = db.prepare(
-    `UPDATE orders SET ready_at = ?, updated_at = datetime('now') WHERE id = ? AND status = 'accepted'`
+    `UPDATE orders SET ready_at = ?, ready_reminded_at = NULL, updated_at = datetime('now') WHERE id = ? AND status = 'accepted'`
   ).run(newReadyAt, orderId);
 
   return result.changes > 0 ? getOrderById(orderId) : null;
 }
 
+// --- Лимит слотов ---
 
+// Количество «живых» заказов заведения с целевым временем в интервале [from, to)
+export function countActiveOrdersInRange(placeId, from, to, excludeOrderId = null) {
+  return db.prepare(`
+    SELECT count(*) AS c FROM orders
+    WHERE place_id = ?
+      AND status IN ('sent', 'accepted', 'ready')
+      AND target_at >= ? AND target_at < ?
+      AND id != ?
+  `).get(placeId, from.toISOString(), to.toISOString(), excludeOrderId ?? -1).c;
+}
+
+// --- Напоминания ---
+
+// Заказы, не принятые дольше minutes (напоминание ещё не отправлялось)
+export function getOrdersAwaitingAcceptReminder(minutes) {
+  return db.prepare(`
+    SELECT o.id FROM orders o
+    WHERE o.status = 'sent' AND o.accept_reminded_at IS NULL
+      AND datetime(o.created_at, '+' || ? || ' minutes') <= datetime('now')
+  `).all(minutes).map(r => getOrderById(r.id));
+}
+
+// Принятые заказы, по которым ещё не напоминали о времени готовности
+export function getAcceptedOrdersWithoutReadyReminder() {
+  return db.prepare(`
+    SELECT id FROM orders WHERE status = 'accepted' AND ready_reminded_at IS NULL AND ready_at IS NOT NULL
+  `).all().map(r => getOrderById(r.id));
+}
+
+// Готовые заказы, ожидающие выдачи дольше minutes; column — какая отметка напоминания проверяется
+export function getReadyOrdersWaitingSince(minutes, column) {
+  if (!['client_pickup_reminded_at', 'staff_pickup_reminded_at'].includes(column)) {
+    throw new Error(`Недопустимая колонка напоминания: ${column}`);
+  }
+  return db.prepare(`
+    SELECT id FROM orders
+    WHERE status = 'ready' AND ${column} IS NULL
+      AND datetime(updated_at, '+' || ? || ' minutes') <= datetime('now')
+  `).all(minutes).map(r => getOrderById(r.id));
+}
+
+const REMINDER_COLUMNS = ['accept_reminded_at', 'ready_reminded_at', 'client_pickup_reminded_at', 'staff_pickup_reminded_at'];
+
+// Отметить напоминание отправленным (не меняет updated_at — от него считается время ожидания)
+export function markOrderReminded(orderId, column) {
+  if (!REMINDER_COLUMNS.includes(column)) throw new Error(`Недопустимая колонка напоминания: ${column}`);
+  db.prepare(`UPDATE orders SET ${column} = datetime('now') WHERE id = ?`).run(orderId);
+}
+
+// --- Ежедневный отчёт заведения (date — YYYY-MM-DD по Минску, UTC+3) ---
+
+const REPORT_DAY_FILTER = `place_id = @placeId AND date(created_at, '+3 hours') = @date AND order_code NOT LIKE 'TEST-%'`;
+
+export function getPlaceDailyReport(placeId, date) {
+  const params = { placeId, date };
+
+  const summary = db.prepare(`
+    SELECT
+      count(*) AS total,
+      COALESCE(sum(status = 'issued'), 0) AS issued,
+      COALESCE(sum(CASE WHEN status = 'issued' THEN total_price END), 0) AS revenue,
+      COALESCE(sum(status IN ('sent', 'accepted', 'ready')), 0) AS active,
+      COALESCE(sum(status = 'cancelled' AND cancel_reason = 'client'), 0) AS cancelled_by_client,
+      COALESCE(sum(status = 'expired'), 0) AS expired,
+      COALESCE(sum(CASE WHEN status = 'expired' THEN total_price END), 0) AS expired_sum,
+      COALESCE(sum(status = 'cancelled' AND COALESCE(cancel_reason, '') != 'client'), 0) AS rejected,
+      COALESCE(sum(CASE WHEN status = 'cancelled' AND COALESCE(cancel_reason, '') != 'client' THEN total_price END), 0) AS rejected_sum,
+      COALESCE(sum(status = 'no_show'), 0) AS no_show,
+      COALESCE(sum(CASE WHEN status = 'no_show' THEN total_price END), 0) AS no_show_sum,
+      count(DISTINCT user_id) AS customers
+    FROM orders
+    WHERE ${REPORT_DAY_FILTER}
+  `).get(params);
+
+  const rejectReasons = db.prepare(`
+    SELECT COALESCE(cancel_reason, 'staff') AS reason, count(*) AS c
+    FROM orders
+    WHERE ${REPORT_DAY_FILTER} AND status = 'cancelled' AND COALESCE(cancel_reason, '') != 'client'
+    GROUP BY 1 ORDER BY c DESC
+  `).all(params);
+
+  const newCustomers = db.prepare(`
+    SELECT count(DISTINCT o.user_id) AS c
+    FROM orders o
+    WHERE o.place_id = @placeId AND date(o.created_at, '+3 hours') = @date AND o.order_code NOT LIKE 'TEST-%'
+      AND NOT EXISTS (
+        SELECT 1 FROM orders p
+        WHERE p.place_id = o.place_id AND p.user_id = o.user_id
+          AND date(p.created_at, '+3 hours') < @date AND p.order_code NOT LIKE 'TEST-%'
+      )
+  `).get(params).c;
+
+  const topItems = db.prepare(`
+    SELECT oi.item_name AS name, sum(oi.quantity) AS qty
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    WHERE o.place_id = @placeId AND date(o.created_at, '+3 hours') = @date
+      AND o.order_code NOT LIKE 'TEST-%' AND o.status = 'issued'
+    GROUP BY oi.item_name
+    ORDER BY qty DESC, name ASC
+    LIMIT 3
+  `).all(params);
+
+  // Среднее время от оформления до принятия кухней (в минутах)
+  const avgAccept = db.prepare(`
+    SELECT avg((julianday(h.changed_at) - julianday(o.created_at)) * 1440) AS minutes
+    FROM orders o
+    JOIN order_status_history h ON h.order_id = o.id AND h.to_status = 'accepted'
+    WHERE o.place_id = @placeId AND date(o.created_at, '+3 hours') = @date AND o.order_code NOT LIKE 'TEST-%'
+  `).get(params).minutes;
+
+  const week = db.prepare(`
+    SELECT
+      count(*) AS total,
+      COALESCE(sum(CASE WHEN status = 'issued' THEN total_price END), 0) AS revenue
+    FROM orders
+    WHERE place_id = @placeId AND order_code NOT LIKE 'TEST-%'
+      AND date(created_at, '+3 hours') > date(@date, '-7 days')
+      AND date(created_at, '+3 hours') <= @date
+  `).get(params);
+
+  return { ...summary, rejectReasons, newCustomers, topItems, avgAcceptMinutes: avgAccept, week };
+}

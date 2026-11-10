@@ -9,7 +9,9 @@ import {
   clientOrderKeyboard,
 } from '../keyboards/client.js';
 import { staffOrderKeyboard } from '../keyboards/staff.js';
-import { getDesiredTimeLabel, parseCustomTimeInput } from '../utils/time.js';
+import { getDesiredTimeLabel, parseCustomTimeInput, resolveTimeKey } from '../utils/time.js';
+import { getPlaceById } from '../db/repositories/places.js';
+import { checkOrderAllowed, getAcceptanceState } from '../services/placeStatus.js';
 import { upsertUser } from '../db/repositories/users.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
 import { config } from '../../config.js';
@@ -57,6 +59,22 @@ function renderConfirmText(cart, desiredTimeLabel, comment, footer = 'Нажми
   text += `\n💵 *Сумма к оплате при получении:* *${formatPrice(cart.totalPrice)}*\n\n`;
   text += footer;
   return text;
+}
+
+// Экран выбора времени (notice — пояснение, почему прошлый выбор не подошёл; suggestion — свободный слот)
+function renderTimeScreen(cart, notice = null) {
+  return (
+    (notice ? `${notice}\n\n` : '') +
+    `⏱ *К какому времени приготовить заказ?*\n🏪 ${md(cart.place.name)}\n\n` +
+    `Выберите подходящее время самовывоза или укажите своё:`
+  );
+}
+
+// Проверка паузы / часов работы / лимита для выбранного времени
+function checkTimeForCart(cart, timeKey) {
+  const place = getPlaceById(cart.place.id);
+  const resolved = resolveTimeKey(timeKey);
+  return { resolved, check: checkOrderAllowed(place, resolved) };
 }
 
 // Обработка команды /cart из меню быстрого доступа
@@ -176,12 +194,17 @@ cartComposer.callbackQuery('cart:checkout:time', async (ctx) => {
     });
   }
 
-  const text = (
-    `⏱ *К какому времени приготовить заказ?*\n🏪 ${md(cart.place.name)}\n\n` +
-    `Выберите подходящее время самовывоза или укажите своё:`
-  );
+  // Пауза или нерабочее время — сразу объясняем, а не после выбора слота
+  const state = getAcceptanceState(getPlaceById(cart.place.id));
+  if (!state.accepting) {
+    return ctx.editMessageText(`${state.text}\n\nКорзина сохранена — вернитесь к оформлению позже.`, {
+      reply_markup: new InlineKeyboard()
+        .text('🛒 К корзине', 'cart:view').row()
+        .text('◀️ В главное меню', 'menu:main'),
+    });
+  }
 
-  await ctx.editMessageText(text, {
+  await ctx.editMessageText(renderTimeScreen(cart), {
     parse_mode: 'Markdown',
     reply_markup: timeSelectionKeyboard(),
   });
@@ -214,12 +237,20 @@ cartComposer.callbackQuery(/^time:([a-z0-9_]+)$/, async (ctx) => {
   if (timeKey === 'custom_prompt') return;
 
   await ctx.answerCallbackQuery();
-  const desiredTimeLabel = getDesiredTimeLabel(timeKey);
   const cart = getCart(ctx.from.id);
 
   if (cart.isEmpty) {
     return ctx.editMessageText('Корзина пуста.', { reply_markup: emptyCartKeyboard() });
   }
+
+  const { resolved, check } = checkTimeForCart(cart, timeKey);
+  if (!check.ok) {
+    return ctx.editMessageText(renderTimeScreen(cart, check.message), {
+      parse_mode: 'Markdown',
+      reply_markup: timeSelectionKeyboard(check.suggestion),
+    });
+  }
+  const desiredTimeLabel = resolved.label;
 
   const comment = userComments.get(ctx.from.id);
   const text = renderConfirmText(cart, desiredTimeLabel, comment);
@@ -297,6 +328,14 @@ cartComposer.on('message:text', async (ctx, next) => {
       return ctx.reply('Корзина пуста.', { reply_markup: emptyCartKeyboard() });
     }
 
+    const { check } = checkTimeForCart(cart, timeKey);
+    if (!check.ok) {
+      return ctx.reply(renderTimeScreen(cart, check.message), {
+        parse_mode: 'Markdown',
+        reply_markup: timeSelectionKeyboard(check.suggestion),
+      });
+    }
+
     const comment = userComments.get(userId);
     const text = renderConfirmText(cart, desiredTimeLabel, comment);
 
@@ -335,7 +374,6 @@ cartComposer.on('message:text', async (ctx, next) => {
 // Финальное подтверждение: создание заказа и отправка в группу заведения
 cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
   const timeKey = ctx.match[1];
-  const desiredTimeLabel = getDesiredTimeLabel(timeKey);
   const userId = ctx.from.id;
 
   // Повторное нажатие «Подтвердить»: заказ уже создан, корзина очищена
@@ -346,6 +384,17 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
       show_alert: true,
     });
   }
+
+  // Финальная проверка паузы, часов работы и лимита — за время на экране подтверждения всё могло измениться
+  const { resolved, check } = checkTimeForCart(cart, timeKey);
+  if (!check.ok) {
+    await ctx.answerCallbackQuery();
+    return ctx.editMessageText(renderTimeScreen(cart, check.message), {
+      parse_mode: 'Markdown',
+      reply_markup: timeSelectionKeyboard(check.suggestion),
+    });
+  }
+  const desiredTimeLabel = resolved.label;
 
   const comment = userComments.get(userId) || null;
 
@@ -363,6 +412,7 @@ cartComposer.callbackQuery(/^order:confirm:([a-z0-9_]+)$/, async (ctx) => {
       userId,
       placeId: cart.place.id,
       desiredTime: desiredTimeLabel,
+      targetAt: resolved.targetAt.toISOString(),
       comment,
     });
   } catch (error) {

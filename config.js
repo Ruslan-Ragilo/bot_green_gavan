@@ -29,6 +29,13 @@ export const config = {
   // Интервал проверки просроченных заказов в миллисекундах (по умолчанию 60 секунд)
   expiryCheckIntervalMs: 60 * 1000,
 
+  // Пульт кухни и напоминания (в минутах)
+  acceptReminderMinutes: Number(process.env.ACCEPT_REMINDER_MINUTES) || 5,      // заказ не принят → пинг в группу
+  clientPickupReminderMinutes: Number(process.env.CLIENT_PICKUP_REMINDER_MINUTES) || 15, // заказ готов, жилец не пришёл → напоминание жильцу
+  staffPickupCheckMinutes: Number(process.env.STAFF_PICKUP_CHECK_MINUTES) || 45, // заказ готов давно → спросить кухню «забрали?»
+  slotMinutes: 15,                 // размер слота для лимита заказов
+  defaultReportTime: '23:30',      // время ежедневного отчёта, если у заведения не заданы часы работы
+
   // Telegram ID администраторов бота (строго только они имеют доступ к /admin)
   adminIds: (process.env.ADMIN_IDS || process.env.STAFF_TELEGRAM_ID || '528985165')
     .split(',')

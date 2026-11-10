@@ -1,9 +1,12 @@
 import { db } from '../index.js';
 
+const PLACE_COLUMNS = `id, name, slug, description, pickup_point, group_chat_id, is_active,
+  paused_until, open_time, close_time, slot_capacity, last_report_date`;
+
 // Получение всех активных заведений ЖК
 export function getActivePlaces() {
   const stmt = db.prepare(`
-    SELECT id, name, slug, description, pickup_point, group_chat_id
+    SELECT ${PLACE_COLUMNS}
     FROM places
     WHERE is_active = 1
     ORDER BY id ASC
@@ -14,7 +17,7 @@ export function getActivePlaces() {
 // Получение заведения по ID
 export function getPlaceById(id) {
   const stmt = db.prepare(`
-    SELECT id, name, slug, description, pickup_point, group_chat_id, is_active
+    SELECT ${PLACE_COLUMNS}
     FROM places
     WHERE id = ?
   `);
@@ -24,7 +27,7 @@ export function getPlaceById(id) {
 // Получение заведения по текстовому идентификатору (slug)
 export function getPlaceBySlug(slug) {
   const stmt = db.prepare(`
-    SELECT id, name, slug, description, pickup_point, group_chat_id, is_active
+    SELECT ${PLACE_COLUMNS}
     FROM places
     WHERE slug = ?
   `);
@@ -73,7 +76,7 @@ export function setItemAvailability(itemId, isAvailable) {
 // Получение ВСЕХ заведений (включая неактивные)
 export function getAllPlaces() {
   const stmt = db.prepare(`
-    SELECT id, name, slug, description, pickup_point, group_chat_id, is_active
+    SELECT ${PLACE_COLUMNS}
     FROM places
     ORDER BY id ASC
   `);
@@ -83,7 +86,7 @@ export function getAllPlaces() {
 // Поиск заведения по group_chat_id
 export function getPlaceByGroupId(groupId) {
   const stmt = db.prepare(`
-    SELECT id, name, slug, description, pickup_point, group_chat_id, is_active
+    SELECT ${PLACE_COLUMNS}
     FROM places
     WHERE group_chat_id = ?
     LIMIT 1
@@ -221,5 +224,38 @@ export function findItemInPlace(placeId, query) {
   return stmt.get(placeId, `%${clean}%`);
 }
 
+// --- Пульт кухни ---
 
+// Пауза приёма заказов до указанного момента (Date) или снятие паузы (null)
+export function setPlacePause(placeId, untilDate) {
+  db.prepare('UPDATE places SET paused_until = ? WHERE id = ?')
+    .run(untilDate ? untilDate.toISOString() : null, placeId);
+  return getPlaceById(placeId);
+}
 
+// Часы работы «ЧЧ:ММ» по Минску (null — круглосуточно)
+export function setPlaceHours(placeId, openTime, closeTime) {
+  db.prepare('UPDATE places SET open_time = ?, close_time = ? WHERE id = ?')
+    .run(openTime || null, closeTime || null, placeId);
+  return getPlaceById(placeId);
+}
+
+// Лимит заказов на слот (null — без лимита)
+export function setPlaceSlotCapacity(placeId, capacity) {
+  db.prepare('UPDATE places SET slot_capacity = ? WHERE id = ?')
+    .run(capacity && capacity > 0 ? capacity : null, placeId);
+  return getPlaceById(placeId);
+}
+
+export function setPlaceLastReportDate(placeId, dateStr) {
+  db.prepare('UPDATE places SET last_report_date = ? WHERE id = ?').run(dateStr, placeId);
+}
+
+// Заведения с привязанной группой кухни (для фоновых задач)
+export function getPlacesWithGroups() {
+  return db.prepare(`SELECT ${PLACE_COLUMNS} FROM places WHERE group_chat_id IS NOT NULL ORDER BY id`).all();
+}
+
+export function countUnavailableItems(placeId) {
+  return db.prepare('SELECT count(*) AS c FROM items WHERE place_id = ? AND is_available = 0').get(placeId).c;
+}

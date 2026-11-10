@@ -1,52 +1,12 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { getOrderById, atomicUpdateOrderStatus, cancelOrderByStaff, setOrderReadyAt, ORDER_STATUSES } from '../db/repositories/orders.js';
 import { isStaffMember } from '../db/repositories/staff.js';
-import { staffOrderKeyboard, cancelReasonKeyboard } from '../keyboards/staff.js';
-import { formatMinskTime, parseDesiredTime } from '../utils/time.js';
+import { staffOrderKeyboard, cancelReasonKeyboard, noShowConfirmKeyboard } from '../keyboards/staff.js';
+import { formatMinskTime, getOrderTimeInfo } from '../utils/time.js';
+import { refreshGroupCard } from '../services/groupCard.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
 
 export const staffComposer = new Composer();
-
-// Вспомогательная функция для сборки обновлённого текста карточки заказа в группе
-function formatGroupCardText(order, staffName) {
-  let statusEmoji = '🟡';
-  let statusName = 'Отправлен';
-
-  if (order.status === 'accepted') {
-    statusEmoji = '🔵';
-    statusName = `Принят в работу (${staffName || 'сотрудник'})`;
-  } else if (order.status === 'ready') {
-    statusEmoji = '🟢';
-    statusName = `Готов к выдаче (${staffName || 'сотрудник'})`;
-  } else if (order.status === 'issued') {
-    statusEmoji = '✅';
-    statusName = `Выдан (${staffName || 'сотрудник'})`;
-  } else if (order.status === 'cancelled') {
-    statusEmoji = '❌';
-    statusName = `Отменён (${staffName || 'сотрудник'})`;
-  }
-
-  const clientName = escapeMarkdown(order.first_name || 'Жилец');
-  const clientUsername = order.username ? `(@${escapeMarkdown(order.username)})` : '';
-  const commentBlock = order.comment ? `\n💬 *Пожелание клиента:* ${escapeMarkdown(order.comment)}\n` : '';
-  const readyBlock = (order.ready_at && ['accepted', 'ready'].includes(order.status))
-    ? `\n⏱ *Ориентир готовности:* ~${order.ready_at}`
-    : '';
-
-  return (
-    `📦 *ЗАКАЗ ${order.order_code}*\n\n` +
-    `👤 *Клиент:* ${clientName} ${clientUsername}\n` +
-    `⏱ *Время получения:* ${escapeMarkdown(order.desired_time)}\n` +
-    `📍 *Точка выдачи:* ${escapeMarkdown(order.pickup_point)}\n\n` +
-    `*Позиции:*\n` +
-    order.items.map(i => `• ${escapeMarkdown(i.item_name)} × ${i.quantity} = ${formatPrice(i.price * i.quantity)}`).join('\n') +
-    `\n` +
-    commentBlock +
-    readyBlock +
-    `\n💵 *Итого:* *${formatPrice(order.total_price)}*\n` +
-    `Статус: ${statusEmoji} *${statusName}*`
-  );
-}
 
 // 1. Принятие заказа «Как можно скорее» с выбором времени приготовления (15-20, 30, 45 мин)
 staffComposer.callbackQuery(/^staff:accept(?:_time)?:(\d+)(?::(\d+))?$/, async (ctx) => {
@@ -88,16 +48,8 @@ staffComposer.callbackQuery(/^staff:accept(?:_time)?:(\d+)(?::(\d+))?$/, async (
 
   const updatedOrder = getOrderById(orderId);
 
-  // Обновляем карточку заказа в группе заведения
-  try {
-    const cardText = formatGroupCardText(updatedOrder, staffName);
-    await ctx.editMessageText(cardText, {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error(`[Error] Не удалось обновить карточку заказа ${order.order_code} в группе:`, err);
-  }
+  // Обновляем карточку заказа в группе
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   // Отправляем уведомление жильцу
   try {
@@ -133,7 +85,7 @@ staffComposer.callbackQuery(/^staff:accept_target:(\d+)$/, async (ctx) => {
   }
 
   const staffName = ctx.from.first_name || 'Сотрудник';
-  const timeInfo = parseDesiredTime(order.desired_time, order.created_at);
+  const timeInfo = getOrderTimeInfo(order);
   const targetTimeStr = timeInfo.targetTimeStr || formatMinskTime(new Date(Date.now() + 20 * 60 * 1000));
 
   const success = atomicUpdateOrderStatus(
@@ -155,16 +107,8 @@ staffComposer.callbackQuery(/^staff:accept_target:(\d+)$/, async (ctx) => {
 
   const updatedOrder = getOrderById(orderId);
 
-  // Обновляем карточку заказа в группе заведения
-  try {
-    const cardText = formatGroupCardText(updatedOrder, staffName);
-    await ctx.editMessageText(cardText, {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error(`[Error] Не удалось обновить карточку заказа ${order.order_code} в группе:`, err);
-  }
+  // Обновляем карточку заказа в группе
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   // Отправляем уведомление жильцу
   try {
@@ -200,7 +144,7 @@ staffComposer.callbackQuery(/^staff:accept_delay:(\d+):(\d+)$/, async (ctx) => {
   }
 
   const staffName = ctx.from.first_name || 'Сотрудник';
-  const timeInfo = parseDesiredTime(order.desired_time, order.created_at);
+  const timeInfo = getOrderTimeInfo(order);
 
   let newTargetStr;
   if (timeInfo.targetTimeStr) {
@@ -234,15 +178,7 @@ staffComposer.callbackQuery(/^staff:accept_delay:(\d+):(\d+)$/, async (ctx) => {
   const updatedOrder = getOrderById(orderId);
 
   // Обновляем карточку заказа в группе
-  try {
-    const cardText = formatGroupCardText(updatedOrder, staffName);
-    await ctx.editMessageText(cardText, {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error(`[Error] Не удалось обновить карточку заказа ${order.order_code} в группе:`, err);
-  }
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   // Отправляем уведомление жильцу с кнопками подтверждения или отмены
   try {
@@ -297,15 +233,8 @@ staffComposer.callbackQuery(/^staff:ready:(\d+)$/, async (ctx) => {
 
   const updatedOrder = getOrderById(orderId);
 
-  // Обновляем сообщение в группе
-  try {
-    await ctx.editMessageText(formatGroupCardText(updatedOrder, staffName), {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error(`[Error] Ошибка обновления сообщения в группе:`, err);
-  }
+  // Обновляем карточку заказа в группе
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   // Отправляем уведомление жильцу с точкой выдачи и кодом заказа
   try {
@@ -356,15 +285,8 @@ staffComposer.callbackQuery(/^staff:issued:(\d+)$/, async (ctx) => {
 
   const updatedOrder = getOrderById(orderId);
 
-  // Обновляем сообщение в группе (кнопки убираются)
-  try {
-    await ctx.editMessageText(formatGroupCardText(updatedOrder, staffName), {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error(`[Error] Ошибка обновления сообщения в группе:`, err);
-  }
+  // Обновляем карточку заказа в группе
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   // Уведомление жильцу
   try {
@@ -409,15 +331,8 @@ staffComposer.callbackQuery(/^staff:cancel:(\d+)$/, async (ctx) => {
 
   const updatedOrder = getOrderById(orderId);
 
-  // Обновляем сообщение в группе
-  try {
-    await ctx.editMessageText(formatGroupCardText(updatedOrder, staffName), {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error(`[Error] Ошибка обновления сообщения в группе:`, err);
-  }
+  // Обновляем карточку заказа в группе
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   // Уведомление жильцу
   try {
@@ -459,6 +374,10 @@ staffComposer.callbackQuery(/^staff:cancel_back:(\d+)$/, async (ctx) => {
 
   if (!order) return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
 
+  if (!isStaffMember(ctx.from.id, order.place_id)) {
+    return ctx.answerCallbackQuery({ text: '⛔ Нет прав', show_alert: true });
+  }
+
   await ctx.answerCallbackQuery();
 
   try {
@@ -488,7 +407,7 @@ staffComposer.callbackQuery(/^staff:cancel_reason:(\d+):(no_ingredients|closing|
   }
 
   const staffName = ctx.from.first_name || 'Сотрудник';
-  const success = cancelOrderByStaff(orderId, ctx.from.id);
+  const success = cancelOrderByStaff(orderId, ctx.from.id, reasonCode);
 
   if (!success) {
     return ctx.answerCallbackQuery({ text: 'Заказ уже выдан или отменён', show_alert: true });
@@ -498,14 +417,8 @@ staffComposer.callbackQuery(/^staff:cancel_reason:(\d+):(no_ingredients|closing|
 
   const updatedOrder = getOrderById(orderId);
 
-  try {
-    await ctx.editMessageText(formatGroupCardText(updatedOrder, staffName), {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error('[Error] Ошибка обновления карточки после отклонения:', err);
-  }
+  // Обновляем карточку заказа в группе
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   try {
     await ctx.api.sendMessage(
@@ -557,14 +470,8 @@ staffComposer.callbackQuery(/^staff:shift_time:(\d+):(\d+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery({ text: `Время сдвинуто: ~${newReadyAt}` });
 
-  try {
-    await ctx.editMessageText(formatGroupCardText(updatedOrder, staffName), {
-      parse_mode: 'Markdown',
-      reply_markup: staffOrderKeyboard(updatedOrder),
-    });
-  } catch (err) {
-    console.error('[Error] Ошибка обновления карточки после сдвига времени:', err);
-  }
+  // Обновляем карточку заказа в группе
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
 
   try {
     const shiftKeyboard = new InlineKeyboard()
@@ -581,5 +488,57 @@ staffComposer.callbackQuery(/^staff:shift_time:(\d+):(\d+)$/, async (ctx) => {
     );
   } catch (err) {
     console.error(`[Error] Не удалось уведомить жильца о сдвиге времени:`, err);
+  }
+});
+
+// «Не забрали»: подтверждение на карточке (защита от случайного нажатия)
+staffComposer.callbackQuery(/^staff:no_show_prompt:(\d+)$/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  const order = getOrderById(orderId);
+
+  if (!order) return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
+  if (!isStaffMember(ctx.from.id, order.place_id)) {
+    return ctx.answerCallbackQuery({ text: '⛔ Нет прав', show_alert: true });
+  }
+
+  await ctx.answerCallbackQuery();
+  try {
+    await ctx.editMessageReplyMarkup({ reply_markup: noShowConfirmKeyboard(orderId) });
+  } catch (err) {
+    console.error('[Error] Не удалось показать подтверждение «Не забрали»:', err);
+  }
+});
+
+// «Не забрали»: ready -> no_show
+staffComposer.callbackQuery(/^staff:no_show:(\d+)$/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  const order = getOrderById(orderId);
+
+  if (!order) return ctx.answerCallbackQuery({ text: 'Заказ не найден', show_alert: true });
+  if (!isStaffMember(ctx.from.id, order.place_id)) {
+    return ctx.answerCallbackQuery({ text: '⛔ Нет прав', show_alert: true });
+  }
+
+  const staffName = ctx.from.first_name || 'Сотрудник';
+  const success = atomicUpdateOrderStatus(orderId, ORDER_STATUSES.READY, ORDER_STATUSES.NO_SHOW, ctx.from.id);
+  if (!success) {
+    return ctx.answerCallbackQuery({ text: 'Статус заказа уже был изменён', show_alert: true });
+  }
+
+  await ctx.answerCallbackQuery({ text: `Заказ ${order.order_code} отмечен как незабранный` });
+
+  const updatedOrder = getOrderById(orderId);
+  await refreshGroupCard({ api: ctx.api, ctx, order: updatedOrder, staffName });
+
+  try {
+    await ctx.api.sendMessage(
+      order.user_id,
+      `🙅 *Заказ ${order.order_code} отмечен как незабранный.*\n\n` +
+      `Заведение «${escapeMarkdown(order.place_name)}» так и не дождалось вас на точке выдачи.\n` +
+      `Если произошла ошибка — просто ответьте на это сообщение, мы разберёмся.`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (err) {
+    console.error(`[Error] Не удалось уведомить жильца ${order.user_id} о незабранном заказе:`, err);
   }
 });
