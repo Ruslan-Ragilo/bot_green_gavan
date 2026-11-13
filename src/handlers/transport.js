@@ -45,6 +45,14 @@ function screen(ctx, text, extra) {
   return renderScreen(ctx, text, extra, { forceNew: fromPinned });
 }
 
+function formatItemRows(items, perRow = 5) {
+  const rows = [];
+  for (let i = 0; i < items.length; i += perRow) {
+    rows.push(items.slice(i, i + perRow).join('  '));
+  }
+  return rows.join('\n');
+}
+
 function formatTimeRows(times, perRow = 5) {
   const rows = [];
   for (let i = 0; i < times.length; i += perRow) {
@@ -155,6 +163,10 @@ export function buildBoard(userId, directionId, stopId, day, mode) {
       text += remaining.length ? formatTimeRows(remaining) : '_на сегодня рейсов больше нет_';
       text += passed ? `\n_уже ушли: ${passed}_` : '';
       text += '\n\n';
+    } else if (showingToday) {
+      // Весь день: ушедшие рейсы обычным текстом, предстоящие — моноширинным
+      const items = r.times.map((t, i) => (r.minutes[i] >= minsk.totalMinutes ? `\`${t}\`` : t));
+      text += `${formatItemRows(items)}\n\n`;
     } else {
       text += `${formatTimeRows(r.times)}\n\n`;
     }
@@ -186,7 +198,7 @@ export function buildBoard(userId, directionId, stopId, day, mode) {
   return { text, keyboard };
 }
 
-async function showBoard(ctx, directionId, stopId, day = 'a', mode = 'r') {
+async function showBoard(ctx, directionId, stopId, day = 'a', mode = 'f') {
   const result = buildBoard(ctx.from.id, directionId, stopId, day, mode);
   if (!result) {
     return showStops(ctx, directionId);

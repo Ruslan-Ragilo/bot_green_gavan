@@ -39,7 +39,7 @@ export function directionKeyboard(pins = []) {
     .text(DIRECTION_TITLES.to_gavan.title, 'tr:d:g').row();
 
   for (const pin of pins) {
-    keyboard.text(`📌 ${pin.label}`, `tr:b:${DIR_CODES[pin.direction_id]}:${pin.stop_id}:a:r`).row();
+    keyboard.text(`📌 ${pin.label}`, `tr:b:${DIR_CODES[pin.direction_id]}:${pin.stop_id}:a:f`).row();
   }
 
   keyboard.text('◀️ В главное меню', 'menu:main');
@@ -55,7 +55,7 @@ export function stopsKeyboard(directionId) {
 
   for (const stop of getDirectionStops(directionId)) {
     const routes = stop.routes.map((r) => r.number).join(', ');
-    keyboard.text(`🚏 ${stop.name} · ${routes}`, `tr:b:${code}:${stop.id}:a:r`).row();
+    keyboard.text(`🚏 ${stop.name} · ${routes}`, `tr:b:${code}:${stop.id}:a:f`).row();
   }
 
   keyboard.text('◀️ Назад к направлениям', 'transport:menu');
@@ -83,7 +83,7 @@ export function boardKeyboard({ directionId, stopId, day, mode, routes, pinnedRo
   if (showingToday) {
     keyboard.text(isWeekendView ? '📅 Расписание на будни' : '📅 Расписание на выходные', `${base}:${isWeekendView ? 'wd' : 'we'}:f`);
   } else {
-    keyboard.text('⏱ Сегодня', `${base}:a:r`);
+    keyboard.text('⏱ Сегодня', `${base}:a:f`);
     keyboard.text(isWeekendView ? '📅 Будни' : '📅 Выходные', `${base}:${isWeekendView ? 'wd' : 'we'}:f`);
   }
   keyboard.row();
@@ -115,6 +115,6 @@ export function boardKeyboard({ directionId, stopId, day, mode, routes, pinnedRo
  */
 export function pinnedScheduleKeyboard(directionId, stopId) {
   return new InlineKeyboard()
-    .text('🚏 Табло остановки', `tr:b:${DIR_CODES[directionId]}:${stopId}:a:r`)
+    .text('🚏 Табло остановки', `tr:b:${DIR_CODES[directionId]}:${stopId}:a:f`)
     .text('📍 Открепить', 'transport:unpin_direct');
 }
