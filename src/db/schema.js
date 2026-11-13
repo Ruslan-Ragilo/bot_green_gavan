@@ -19,14 +19,16 @@ CREATE TABLE IF NOT EXISTS user_screens (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
--- Закрепленное избранное расписание в шапке чата
+-- Закреплённые расписания в шапке чата (несколько на пользователя: маршрут + направление + остановка)
 CREATE TABLE IF NOT EXISTS user_pins (
-  user_id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
   message_id INTEGER NOT NULL,
   route_id TEXT NOT NULL,
   direction_id TEXT NOT NULL,
   stop_id TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, route_id, direction_id, stop_id)
 );
 
 -- Заведения ЖК

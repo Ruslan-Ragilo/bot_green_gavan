@@ -55,7 +55,7 @@ async function safeDeleteMessage(ctx, chatId, messageId) {
 /**
  * Внутренняя функция отрисовки экрана с проверкой на актуальность запроса
  */
-async function executeRenderScreen(ctx, text, extra, seq, userId, chatId) {
+async function executeRenderScreen(ctx, text, extra, seq, userId, chatId, options = {}) {
   const isStale = () => userRequestSeq.get(userId) !== seq;
 
   // 1. Если пользователь прислал команду (/start, /transport) — удаляем её текст из чата
@@ -69,7 +69,8 @@ async function executeRenderScreen(ctx, text, extra, seq, userId, chatId) {
   if (isStale()) return;
 
   // 2. Если это callback от инлайн-кнопки — редактируем сообщение на месте
-  if (ctx.callbackQuery) {
+  //    (кроме forceNew: например, кнопка на закреплённом сообщении — его нельзя затирать экраном)
+  if (ctx.callbackQuery && !options.forceNew) {
     const clickedMsgId = ctx.callbackQuery.message?.message_id;
 
     try {
@@ -124,7 +125,7 @@ async function executeRenderScreen(ctx, text, extra, seq, userId, chatId) {
  * 3. Выстраивает запросы одного пользователя в строгую последовательную цепочку (FIFO)
  * 4. Сохраняет ID сообщения в SQLite для защиты от дублей при перезапусках
  */
-export async function renderScreen(ctx, text, extra = {}) {
+export async function renderScreen(ctx, text, extra = {}, options = {}) {
   const userId = ctx.from?.id;
   const chatId = ctx.chat?.id;
   if (!userId || !chatId) return;
@@ -137,7 +138,7 @@ export async function renderScreen(ctx, text, extra = {}) {
   const previousPromise = userQueues.get(userId) || Promise.resolve();
 
   const currentPromise = previousPromise
-    .then(() => executeRenderScreen(ctx, text, extra, seq, userId, chatId))
+    .then(() => executeRenderScreen(ctx, text, extra, seq, userId, chatId, options))
     .catch((err) => {
       console.error('[CleanChat] Ошибка в очереди отрисовки экрана:', err.message);
     })

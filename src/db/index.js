@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { config } from '../../config.js';
 import { SCHEMA_SQL } from './schema.js';
+import { runMigrations } from './migrations.js';
 
 // Гарантируем наличие директории для файла базы данных
 const resolvedDbPath = path.resolve(config.dbPath);
@@ -19,5 +20,6 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.pragma('synchronous = NORMAL');
 
-// Применяем схему при запуске
+// Применяем схему при запуске и мигрируем старую базу
 db.exec(SCHEMA_SQL);
+runMigrations(db);

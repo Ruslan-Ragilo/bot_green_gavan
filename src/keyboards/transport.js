@@ -1,88 +1,104 @@
 import { InlineKeyboard } from 'grammy';
-import { getRouteStops } from '../services/transportService.js';
+import { getDirectionStops, DIRECTION_TITLES } from '../services/transportService.js';
+
+// Короткие коды направлений в callback_data (лимит Telegram — 64 байта)
+export const DIR_CODES = { to_minsk: 'm', to_gavan: 'g' };
+export const DIR_BY_CODE = { m: 'to_minsk', g: 'to_gavan' };
 
 /**
- * Шаг 1: Выбор транспорта
+ * Главное меню бота
  */
 export function transportMenuKeyboard() {
   return new InlineKeyboard()
-    .text('🚌 Автобус 200С', 'transport:route:200c').row()
-    .text('🚌 Автобус 200дС (через Колодищи-2)', 'transport:route:200dc').row()
-    .text('🚐 Маршрутка 1222-ТК', 'transport:route:1222tk').row()
+    .text('🚌 Общественный транспорт', 'transport:menu').row()
     .text('☕️ Поддержать проект / Связь', 'support:menu');
 }
 
 /**
- * Шаг 2: Выбор направления
+ * Шаг 1: направление. pins — закреплённые расписания пользователя для быстрого перехода к табло.
  */
-export function routeDirectionKeyboard(routeId) {
-  return new InlineKeyboard()
-    .text('🏙 В Минск', `transport:dir:${routeId}:to_minsk`).row()
-    .text('🏡 В Зелёную Гавань', `transport:dir:${routeId}:to_gavan`).row()
-    .text('◀️ Назад к выбору транспорта', 'transport:menu');
-}
+export function directionKeyboard(pins = []) {
+  const keyboard = new InlineKeyboard()
+    .text(DIRECTION_TITLES.to_minsk.title, 'tr:d:m').row()
+    .text(DIRECTION_TITLES.to_gavan.title, 'tr:d:g').row();
 
-/**
- * Шаг 3: Выбор остановки
- */
-export function stopsSelectionKeyboard(routeId, directionId, currentStopId = null, dayType = 'auto') {
-  const keyboard = new InlineKeyboard();
-  const stops = getRouteStops(routeId, directionId);
-
-  // Для компактности отображаем кнопки остановок
-  for (let i = 0; i < stops.length; i++) {
-    const s = stops[i];
-    const isSelected = s.id === currentStopId;
-    const prefix = isSelected ? '✅ ' : '🚏 ';
-    const label = `${prefix}${i + 1}. ${s.name}`;
-
-    keyboard.text(label, `transport:view:${routeId}:${directionId}:${s.id}:${dayType}`).row();
+  for (const pin of pins) {
+    keyboard.text(`📌 ${pin.label}`, `tr:b:${DIR_CODES[pin.direction_id]}:${pin.stop_id}:a:r`).row();
   }
 
-  keyboard.text('◀️ Назад к выбору направления', `transport:route:${routeId}`);
+  keyboard.text('◀️ В главное меню', 'menu:main');
   return keyboard;
 }
 
 /**
- * Экран расписания для выбранной остановки
+ * Шаг 2: остановка посадки (все маршруты направления)
  */
-export function scheduleKeyboard(routeId, directionId, stopId, currentDayType, isPinned = false) {
+export function stopsKeyboard(directionId) {
   const keyboard = new InlineKeyboard();
+  const code = DIR_CODES[directionId];
 
-  // 1. Переключение Будни / Выходные
-  if (currentDayType === 'weekdays') {
-    keyboard.text('📅 Расписание на ВЫХОДНЫЕ', `transport:view:${routeId}:${directionId}:${stopId}:weekends`).row();
-  } else {
-    keyboard.text('📅 Расписание на БУДНИ', `transport:view:${routeId}:${directionId}:${stopId}:weekdays`).row();
+  for (const stop of getDirectionStops(directionId)) {
+    const routes = stop.routes.map((r) => r.number).join(', ');
+    keyboard.text(`🚏 ${stop.name} · ${routes}`, `tr:b:${code}:${stop.id}:a:r`).row();
   }
 
-  // 2. Смена остановки
-  keyboard.text('🚏 Сменить остановку', `transport:dir:${routeId}:${directionId}:${currentDayType}`).row();
+  keyboard.text('◀️ Назад к направлениям', 'transport:menu');
+  return keyboard;
+}
 
-  // 3. Смена направления
-  const oppositeDir = directionId === 'to_minsk' ? 'to_gavan' : 'to_minsk';
-  const oppositeLabel = directionId === 'to_minsk' ? '🔄 В обратную сторону (в Гавань)' : '🔄 В обратную сторону (в Минск)';
-  keyboard.text(oppositeLabel, `transport:dir:${routeId}:${oppositeDir}`).row();
+/**
+ * Табло остановки.
+ * day: a (сегодня) | wd (будни) | we (выходные); mode: r (оставшиеся рейсы) | f (весь день)
+ * pinnedRouteIds — маршруты этой остановки, уже закреплённые пользователем
+ */
+export function boardKeyboard({ directionId, stopId, day, mode, routes, pinnedRouteIds, showingToday, isWeekendView }) {
+  const keyboard = new InlineKeyboard();
+  const code = DIR_CODES[directionId];
+  const base = `tr:b:${code}:${stopId}`;
 
-  // 4. Закрепление расписания в шапке чата
-  if (isPinned) {
-    keyboard.text('📍 Открепить из шапки чата', `transport:unpin:${routeId}:${directionId}:${stopId}:${currentDayType}`).row();
+  // 1. Обновить и режим показа
+  keyboard.text('🔄 Обновить', `${base}:${day}:${mode}`);
+  if (showingToday) {
+    keyboard.text(mode === 'r' ? '📋 Весь день' : '⏩ Только оставшиеся', `${base}:${day}:${mode === 'r' ? 'f' : 'r'}`);
+  }
+  keyboard.row();
+
+  // 2. Будни / выходные
+  if (showingToday) {
+    keyboard.text(isWeekendView ? '📅 Расписание на будни' : '📅 Расписание на выходные', `${base}:${isWeekendView ? 'wd' : 'we'}:f`);
   } else {
-    keyboard.text('📌 Закрепить в шапке чата', `transport:pin:${routeId}:${directionId}:${stopId}:${currentDayType}`).row();
+    keyboard.text('⏱ Сегодня', `${base}:a:r`);
+    keyboard.text(isWeekendView ? '📅 Будни' : '📅 Выходные', `${base}:${isWeekendView ? 'wd' : 'we'}:f`);
+  }
+  keyboard.row();
+
+  // 3. Закрепить расписание каждого маршрута отдельно
+  for (const route of routes) {
+    const pinned = pinnedRouteIds.includes(route.id);
+    keyboard
+      .text(
+        pinned ? `📍 Открепить ${route.number}` : `📌 Закрепить ${route.number}`,
+        `tr:pin:${route.id}:${code}:${stopId}:${day}:${mode}`
+      )
+      .row();
   }
 
-  // 5. Навигация
-  keyboard.text('🚌 К выбору транспорта', 'transport:menu');
+  // 4. Навигация
+  const opposite = directionId === 'to_minsk' ? 'g' : 'm';
+  keyboard
+    .text('🚏 Другая остановка', `tr:d:${code}`)
+    .text(directionId === 'to_minsk' ? '🔁 В Гавань' : '🔁 В Минск', `tr:d:${opposite}`)
+    .row()
+    .text('◀️ В главное меню', 'menu:main');
 
   return keyboard;
 }
 
 /**
- * Клавиатура для самого закреплённого сообщения вверху чата
+ * Клавиатура закреплённого сообщения
  */
-export function pinnedScheduleKeyboard() {
+export function pinnedScheduleKeyboard(directionId, stopId) {
   return new InlineKeyboard()
-    .text('📍 Открепить расписание', 'transport:unpin_direct')
-    .text('🚌 Меню транспорта', 'transport:menu');
+    .text('🚏 Табло остановки', `tr:b:${DIR_CODES[directionId]}:${stopId}:a:r`)
+    .text('📍 Открепить', 'transport:unpin_direct');
 }
-
