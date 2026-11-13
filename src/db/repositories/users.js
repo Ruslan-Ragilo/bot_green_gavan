@@ -31,10 +31,12 @@ export function updateUserPhone(telegramId, phone) {
 // Удаление персональных данных по 152-ФЗ (/delete_me)
 export function deleteUserData(telegramId) {
   const clearCart = db.prepare('DELETE FROM cart_items WHERE user_id = ?');
+  const clearPins = db.prepare('DELETE FROM user_pins WHERE user_id = ?');
   const deleteUser = db.prepare('DELETE FROM users WHERE telegram_id = ?');
 
   const transaction = db.transaction((id) => {
     clearCart.run(id);
+    clearPins.run(id);
     return deleteUser.run(id);
   });
 
@@ -53,35 +55,34 @@ export function getAllUserIds() {
   return stmt.all().map(r => r.telegram_id);
 }
 
-// Получение закрепленного расписания пользователя
-export function getUserPin(userId) {
-  try {
-    const stmt = db.prepare('SELECT * FROM user_pins WHERE user_id = ?');
-    return stmt.get(userId) || null;
-  } catch {
-    return null;
-  }
+// --- Закреплённые расписания (по одному на маршрут + направление + остановку) ---
+
+export function getUserPins(userId) {
+  return db.prepare('SELECT * FROM user_pins WHERE user_id = ? ORDER BY id').all(userId);
 }
 
-// Сохранение закрепленного расписания
-export function setUserPin(userId, messageId, routeId, directionId, stopId) {
-  const stmt = db.prepare(`
+export function findUserPin(userId, routeId, directionId, stopId) {
+  return db.prepare(`
+    SELECT * FROM user_pins WHERE user_id = ? AND route_id = ? AND direction_id = ? AND stop_id = ?
+  `).get(userId, routeId, directionId, stopId) || null;
+}
+
+export function findUserPinByMessage(userId, messageId) {
+  return db.prepare('SELECT * FROM user_pins WHERE user_id = ? AND message_id = ?').get(userId, messageId) || null;
+}
+
+export function addUserPin(userId, messageId, routeId, directionId, stopId) {
+  return db.prepare(`
     INSERT INTO user_pins (user_id, message_id, route_id, direction_id, stop_id, created_at)
     VALUES (?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(user_id) DO UPDATE SET
+    ON CONFLICT(user_id, route_id, direction_id, stop_id) DO UPDATE SET
       message_id = excluded.message_id,
-      route_id = excluded.route_id,
-      direction_id = excluded.direction_id,
-      stop_id = excluded.stop_id,
       created_at = excluded.created_at
-  `);
-  return stmt.run(userId, messageId, routeId, directionId, stopId);
+  `).run(userId, messageId, routeId, directionId, stopId);
 }
 
-// Удаление закрепленного расписания
-export function deleteUserPin(userId) {
-  const stmt = db.prepare('DELETE FROM user_pins WHERE user_id = ?');
-  return stmt.run(userId);
+export function deleteUserPinById(pinId) {
+  return db.prepare('DELETE FROM user_pins WHERE id = ?').run(pinId);
 }
 
 // Подробная статистика пользователей для панели администратора

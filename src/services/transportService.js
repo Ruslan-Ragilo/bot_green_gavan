@@ -449,3 +449,127 @@ export function getAllNextDepartures() {
 
   return result;
 }
+
+// ============================================================================
+// Табло остановки: все маршруты направления на одной остановке
+// ============================================================================
+
+export const DIRECTION_TITLES = {
+  to_minsk: { title: '🏙 Из Гавани в Минск', short: 'в Минск' },
+  to_gavan: { title: '🏡 В Зелёную Гавань', short: 'в Зелёную Гавань' },
+};
+
+/**
+ * Подпись «через N мин / через 1 ч 5 мин»
+ */
+export function formatWait(diffMinutes) {
+  if (diffMinutes <= 0) return 'отправляется';
+  if (diffMinutes < 60) return `через ${diffMinutes} мин`;
+  const h = Math.floor(diffMinutes / 60);
+  const m = diffMinutes % 60;
+  return m > 0 ? `через ${h} ч ${m} мин` : `через ${h} ч`;
+}
+
+/**
+ * Минуты от начала суток с учётом перехода через полночь:
+ * расписание идёт по возрастанию, поэтому «00:05» после «23:30» — это 24:05
+ */
+function toTimeline(times) {
+  let dayShift = 0;
+  let prev = -1;
+  return times.map((t) => {
+    let m = parseTimeToMinutes(t) + dayShift;
+    if (m < prev) {
+      dayShift += 1440;
+      m += 1440;
+    }
+    prev = m;
+    return m;
+  });
+}
+
+/**
+ * Все остановки посадки направления (по всем маршрутам).
+ * Конечная остановка маршрута не считается посадочной.
+ * Порядок: основные остановки (isDefault) первыми, затем остальные по ходу маршрутов.
+ */
+export function getDirectionStops(directionId) {
+  const schedule = getTransportSchedule();
+  const byId = new Map();
+  const defaults = [];
+
+  for (const [routeId, route] of Object.entries(schedule.routes)) {
+    const stops = route.directions?.[directionId]?.stops || [];
+    stops.forEach((stop, index) => {
+      if (index === stops.length - 1) return; // конечная — только прибытие
+      if (!byId.has(stop.id)) {
+        byId.set(stop.id, { id: stop.id, name: stop.name, routes: [] });
+      }
+      const entry = byId.get(stop.id);
+      entry.routes.push({ id: routeId, number: route.number, badge: route.badge });
+      if (stop.isDefault && !defaults.includes(stop.id)) defaults.push(stop.id);
+    });
+  }
+
+  const ordered = [...defaults, ...[...byId.keys()].filter((id) => !defaults.includes(id))];
+  return ordered.map((id) => byId.get(id));
+}
+
+/**
+ * Расписание остановки по всем маршрутам направления на указанный тип дня
+ */
+export function getStopBoard(directionId, stopId, dayType) {
+  const schedule = getTransportSchedule();
+  const stopInfo = getDirectionStops(directionId).find((s) => s.id === stopId);
+  if (!stopInfo) return null;
+
+  const routes = stopInfo.routes.map(({ id }) => {
+    const route = schedule.routes[id];
+    const direction = route.directions[directionId];
+    const { times } = getStopSchedule(id, directionId, stopId, dayType);
+    return { route, direction, times, minutes: toTimeline(times) };
+  });
+
+  return { stop: stopInfo, routes };
+}
+
+/**
+ * Ближайшие отправления с остановки по всем маршрутам (общий список по времени)
+ */
+export function getNearestFromBoard(board, nowMinutes, limit = 4) {
+  const all = [];
+  for (const r of board.routes) {
+    r.minutes.forEach((m, i) => {
+      if (m >= nowMinutes) {
+        all.push({ route: r.route, time: r.times[i], diffMinutes: m - nowMinutes });
+      }
+    });
+  }
+  return all.sort((a, b) => a.diffMinutes - b.diffMinutes).slice(0, limit);
+}
+
+/**
+ * Первый рейс указанного типа дня (для подсказки «сегодня рейсов больше нет»)
+ */
+export function getFirstDepartureFromBoard(board) {
+  let best = null;
+  for (const r of board.routes) {
+    if (r.minutes.length > 0 && (!best || r.minutes[0] < best.minutes)) {
+      best = { route: r.route, time: r.times[0], minutes: r.minutes[0] };
+    }
+  }
+  return best;
+}
+
+/**
+ * Оставшиеся сегодня времена маршрута и количество уже ушедших рейсов
+ */
+export function splitRemaining(routeBoard, nowMinutes) {
+  const remaining = [];
+  let passed = 0;
+  routeBoard.minutes.forEach((m, i) => {
+    if (m >= nowMinutes) remaining.push(routeBoard.times[i]);
+    else passed++;
+  });
+  return { remaining, passed };
+}
