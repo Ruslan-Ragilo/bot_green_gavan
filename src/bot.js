@@ -10,6 +10,8 @@ import { adminComposer } from './handlers/admin.js';
 import { transportComposer } from './handlers/transport.js';
 import { supportComposer } from './handlers/support.js';
 import { kitchenComposer } from './handlers/kitchen.js';
+import { makersComposer } from './handlers/makers.js';
+import { makerPanelComposer } from './handlers/makerPanel.js';
 import { resetPendingInputMiddleware } from './utils/pendingInput.js';
 
 export function createBot() {
@@ -79,6 +81,8 @@ export function createBot() {
   bot.use(startComposer);
   bot.use(transportComposer);
   bot.use(supportComposer);
+  bot.use(makersComposer);
+  bot.use(makerPanelComposer);
   bot.use(catalogComposer);
   bot.use(cartComposer);
   bot.use(ordersComposer);

@@ -20,6 +20,9 @@ export function transportMenuKeyboard(cartTotalQuantity = 0) {
     .text('☕️ Varka (Кофе)', 'catalog:place:varka')
     .row();
 
+  // Домашняя еда и изделия ручной работы от местных мастеров
+  keyboard.text('🧺 Домашнее и ручное', 'mk:home').row();
+
   if (cartTotalQuantity > 0) {
     keyboard.text(`🛒 Оформить заказ (${cartTotalQuantity} шт.)`, 'cart:view').row();
   }
