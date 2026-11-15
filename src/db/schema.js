@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS makers (
   about_entities TEXT,             -- JSON: форматирование Telegram (жирный, курсив) как прислал мастер
   contact TEXT,                    -- @username для кнопки «Написать» или телефон
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'hidden', 'rejected')),
-  cover_photo TEXT,                -- file_id фото для карточки мастера (логотип, сам мастер, ассортимент)
+  cover_photo TEXT,                -- не используется (было фото карточки мастера)
   stock_updated_at TEXT,           -- когда мастер последний раз подтверждал наличие (UTC)
   last_notified_at TEXT,           -- последняя рассылка подписчикам (UTC)
   notified_stock TEXT,             -- JSON: id позиций, которые были в наличии на момент прошлой рассылки

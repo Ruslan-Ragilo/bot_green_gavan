@@ -148,16 +148,10 @@ export function setSectionCover(fileId) {
   }
 }
 
-// Фото карточки мастера: своё или первое фото его позиций (никогда не чужое)
+// Фото для страницы мастера и его позиций без фото — первое фото его позиций (никогда не чужое)
 export function getMakerCover(makerId) {
-  const maker = db.prepare('SELECT cover_photo FROM makers WHERE id = ?').get(makerId);
-  if (maker?.cover_photo) return maker.cover_photo;
   const row = db.prepare(`SELECT photos FROM maker_items WHERE maker_id = ? AND photos <> '[]' ORDER BY id LIMIT 1`).get(makerId);
   return row ? parseJson(row.photos, [])[0] || null : null;
-}
-
-export function setMakerCoverPhoto(makerId, fileId) {
-  db.prepare('UPDATE makers SET cover_photo = ? WHERE id = ?').run(fileId || null, makerId);
 }
 
 const variantsJson = (variants) => (variants && variants.length
