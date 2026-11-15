@@ -100,6 +100,7 @@ export function runMigrations(db) {
   allowMultiplePins(db);
   addMissingColumns(db, 'places', PLACE_COLUMNS);
   addMissingColumns(db, 'orders', ORDER_COLUMNS);
+  addMissingColumns(db, 'makers', { cover_photo: 'TEXT' });
   allowNoShowStatus(db);
   // Индекс для лимита заказов на слот — только после того, как колонка target_at точно существует
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_place_target ON orders(place_id, target_at)');

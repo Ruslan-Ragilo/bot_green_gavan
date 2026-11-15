@@ -5,7 +5,7 @@
  */
 import { Composer, InlineKeyboard } from 'grammy';
 import {
-  getActiveMakers, getMaker, getMakerItems, getMakerItem, getInStockItems, getSectionCover,
+  getActiveMakers, getMaker, getMakerItems, getMakerItem, getInStockItems, getSectionCover, getMakerCover,
   isSubscribed, subscribe, unsubscribe,
 } from '../db/repositories/makers.js';
 import {
@@ -24,15 +24,12 @@ function show(ctx, built, keyboard, options = {}) {
 }
 
 /*
- * Все экраны раздела — одного типа. Telegram не умеет превращать текстовое сообщение в фото на месте:
- * при смене типа сообщение удаляется и приходит новое (мигание). Поэтому, если в разделе есть хоть одно фото,
- * списки тоже показываются как фото с обложкой, а переходы и листание — это правка одного сообщения.
+ * Telegram не умеет превращать текстовое сообщение в фото на месте: при смене типа сообщение удаляется
+ * и приходит новое (мигание). Поэтому экраны показываются с обложкой: раздел и «Что есть сейчас» —
+ * с обложкой раздела (задаёт админ), страница мастера и его позиции без фото — с фото мастера.
+ * Чужие фото не подставляются: нет обложки — экран текстовый.
  */
 const CAPTION_LIMIT = 1024;
-
-function makerCover(makerId) {
-  return getMakerItems(makerId).find(i => i.photos.length > 0)?.photos[0] || null;
-}
 
 function showWithCover(ctx, r, keyboard, cover) {
   if (cover) return show(ctx, r.build(CAPTION_LIMIT), keyboard, { photo: cover });
@@ -103,7 +100,7 @@ makersComposer.callbackQuery('mk:now', async (ctx) => {
   }
 
   kb.text('◀️ Назад', 'mk:home');
-  await showWithCover(ctx, r, kb, items.find(i => i.photos.length > 0)?.photos[0] || getSectionCover());
+  await showWithCover(ctx, r, kb, getSectionCover());
 });
 
 // ── Страница мастера ──────────────────────────────────────
@@ -156,7 +153,7 @@ export async function showMaker(ctx, makerId, { full = false } = {}) {
   writeButton(kb, maker);
   kb.text(subscribed ? '🔕 Отписаться от новостей' : '🔔 Сообщать о наличии', `mk:sub:${maker.id}:${full ? 'a' : 'm'}`).row();
   kb.text('◀️ Назад', full ? `mk:m:${maker.id}` : 'mk:home');
-  return showWithCover(ctx, r, kb, makerCover(maker.id) || getSectionCover());
+  return showWithCover(ctx, r, kb, getMakerCover(maker.id));
 }
 
 // Порядок как в списках: по разделам, внутри раздела — как пришло (стабильная сортировка)
@@ -264,7 +261,7 @@ makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man])$/, async (ctx) => {
   }
   const back = ctx.match[3];
   const { built, photo, keyboard } = buildItemCard(item, maker, {
-    photoIndex: Number(ctx.match[2]), back, fallbackPhoto: makerCover(maker.id) || getSectionCover(),
+    photoIndex: Number(ctx.match[2]), back, fallbackPhoto: getMakerCover(maker.id),
   });
 
   // Листание позиций по кругу внутри текущего списка

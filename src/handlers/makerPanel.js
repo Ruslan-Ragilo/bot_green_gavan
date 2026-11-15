@@ -12,6 +12,7 @@ import {
   getAllMakers, getMakerItems, getMakerItem, createMakerItem, replaceMakerItemPost, updateMakerItemField,
   toggleMakerItemStock, deleteMakerItem, touchMakerStock, markMakerNotified,
   getSubscriberIds, countSubscribers, unsubscribe, findUserIdByUsername, deleteMaker,
+  getSectionCover, setSectionCover, setMakerCoverPhoto,
 } from '../db/repositories/makers.js';
 import {
   MAKER_CATEGORIES, CATEGORY_BY_ID, parseMakerPost, formatWhen, isStockFresh, notifyCooldownLeftMinutes,
@@ -164,11 +165,12 @@ makerPanelComposer.callbackQuery('mkp:profile', async (ctx) => {
   if (!maker) return showPanel(ctx);
   const r = rich().bold('👤 Описание и контакт').nl(2)
     .plain(`Имя: ${maker.name}`).nl()
-    .plain(`Контакт для кнопки «Написать»: ${maker.contact || 'не указан'}`).nl(2)
+    .plain(`Контакт для кнопки «Написать»: ${maker.contact || 'не указан'}`).nl()
+    .plain(`Фото карточки: ${maker.cover_photo ? 'своё' : 'фото первой позиции'}`).nl(2)
     .rich(maker.about || '—', maker.about ? maker.about_entities : []);
   const kb = new InlineKeyboard()
     .text('✏️ Имя', 'mkp:pf:name').text('✏️ Описание', 'mkp:pf:about').row()
-    .text('✏️ Контакт', 'mkp:pf:contact').row()
+    .text('✏️ Контакт', 'mkp:pf:contact').text('🖼 Фото карточки', 'mkp:cover').row()
     .text('◀️ В кабинет', 'mkp:home');
   await show(ctx, r.build(), kb);
 });
@@ -371,6 +373,25 @@ makerPanelComposer.on(['message:photo', 'message:text'], async (ctx, next) => {
     clearTimeout(album.timer);
     album.timer = setTimeout(() => finishAlbum(msg.media_group_id), ALBUM_WAIT_MS);
     return;
+  }
+
+  // Обложки: одно фото
+  if (msg.photo && !msg.media_group_id) {
+    const fileId = msg.photo[msg.photo.length - 1].file_id;
+    if (getPendingInput(userId, 'makers_cover') && isAdmin(userId)) {
+      clearPendingInput(userId);
+      setSectionCover(fileId);
+      const { built, kb } = makersAdminView();
+      const done = rich().plain('✅ Обложка раздела сохранена.').nl(2).rich(built.text, built.entities).build();
+      await ctx.reply(done.text, { entities: done.entities, reply_markup: kb });
+      return;
+    }
+    if (getPendingInput(userId, 'maker_cover')) {
+      clearPendingInput(userId);
+      const maker = ownMaker(ctx);
+      if (maker) setMakerCoverPhoto(maker.id, fileId);
+      return showPanel(ctx);
+    }
   }
 
   const postState = getPendingInput(userId, 'maker_post');
@@ -595,7 +616,9 @@ function makersAdminView() {
     kb.text(`${icon} #${m.id} ${m.name} · ${m.items_count} поз.`, `mka:m:${m.id}`).row();
   }
   if (makers.length > 0) r.plain('Выберите мастера, чтобы скрыть, одобрить или удалить.').nl();
+  r.nl().plain(`🖼 Обложка раздела: ${getSectionCover() ? 'задана' : 'не задана — раздел показывается текстом'}`).nl();
   r.nl().italic('Передать карточку: /maker_owner <номер> @username (мастер должен хотя бы раз нажать /start).');
+  kb.text('🖼 Обложка раздела', 'mka:cover').row();
   kb.text('◀️ В админ-панель', 'admin:main');
   return { built: r.build(), kb };
 }
@@ -684,6 +707,52 @@ makerPanelComposer.callbackQuery(/^mka:delok:(\d+)$/, async (ctx) => {
   }
   await ctx.answerCallbackQuery({ text: maker ? `🗑 «${maker.name}» удалён` : 'Уже удалён' });
   await editView(ctx, makersAdminView());
+});
+
+// Обложка раздела «Домашнее и ручное»
+makerPanelComposer.callbackQuery('mka:cover', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  if (!isAdmin(ctx.from.id)) return;
+  setPendingInput(ctx.from.id, 'makers_cover');
+  const kb = new InlineKeyboard();
+  if (getSectionCover()) kb.text('🗑 Убрать обложку', 'mka:cover_off').row();
+  kb.text('◀️ Назад', 'mka:list');
+  await editView(ctx, {
+    built: rich().bold('🖼 Обложка раздела').nl(2)
+      .plain('Пришлите картинку — она будет вверху раздела «Домашнее и ручное» и сводки «Что есть сейчас».').nl(2)
+      .italic('Лучше горизонтальную: баннер с названием или общий снимок выпечки и изделий.')
+      .build(),
+    kb,
+  });
+});
+
+makerPanelComposer.callbackQuery('mka:cover_off', async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCallbackQuery();
+  setSectionCover(null);
+  await ctx.answerCallbackQuery({ text: 'Обложка убрана' });
+  await editView(ctx, makersAdminView());
+});
+
+// Фото карточки мастера
+makerPanelComposer.callbackQuery('mkp:cover', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const maker = ownMaker(ctx);
+  if (!maker) return showPanel(ctx);
+  setPendingInput(ctx.from.id, 'maker_cover');
+  const kb = new InlineKeyboard();
+  if (maker.cover_photo) kb.text('🗑 Убрать фото', 'mkp:cover_off').row();
+  kb.text('✖️ Отмена', 'mkp:profile');
+  await show(ctx, rich().bold('🖼 Фото для карточки').nl(2)
+    .plain('Пришлите одно фото: логотип, ваше фото или общий снимок ассортимента. Оно будет вверху вашей карточки.').nl(2)
+    .italic('Пока фото не задано, показывается фото вашей первой позиции.')
+    .build(), kb);
+});
+
+makerPanelComposer.callbackQuery('mkp:cover_off', async (ctx) => {
+  const maker = ownMaker(ctx);
+  if (maker) setMakerCoverPhoto(maker.id, null);
+  await ctx.answerCallbackQuery({ text: 'Фото убрано' });
+  await showPanel(ctx);
 });
 
 // Админ заполняет карточку сам (например, для показа мастеру), затем передаёт её владельцу

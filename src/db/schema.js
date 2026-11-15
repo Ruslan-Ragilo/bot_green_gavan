@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS makers (
   about_entities TEXT,             -- JSON: форматирование Telegram (жирный, курсив) как прислал мастер
   contact TEXT,                    -- @username для кнопки «Написать» или телефон
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'hidden', 'rejected')),
+  cover_photo TEXT,                -- file_id фото для карточки мастера (логотип, сам мастер, ассортимент)
   stock_updated_at TEXT,           -- когда мастер последний раз подтверждал наличие (UTC)
   last_notified_at TEXT,           -- последняя рассылка подписчикам (UTC)
   created_at TEXT DEFAULT (datetime('now'))
@@ -170,6 +171,12 @@ CREATE TABLE IF NOT EXISTS maker_items (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_maker_items_maker ON maker_items(maker_id);
+
+-- Простые настройки бота (ключ → значение), например обложка раздела «Домашнее и ручное»
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 
 -- Подписки жильцов на мастеров (уведомления о наличии)
 CREATE TABLE IF NOT EXISTS maker_subscriptions (

@@ -131,16 +131,30 @@ export function getInStockItems(sinceUtc) {
   `).all(sinceUtc).map(mapItem);
 }
 
-// Обложка раздела: первое фото у мастера, который свежее всех обновлял наличие
+// Обложка раздела задаётся администратором; без неё раздел показывается текстом
 export function getSectionCover() {
-  const row = db.prepare(`
-    SELECT i.photos FROM maker_items i
-    JOIN makers m ON m.id = i.maker_id
-    WHERE m.status = 'active' AND i.photos <> '[]'
-    ORDER BY m.stock_updated_at IS NULL, m.stock_updated_at DESC, i.id
-    LIMIT 1
-  `).get();
+  return db.prepare(`SELECT value FROM app_settings WHERE key = 'makers_cover'`).get()?.value || null;
+}
+
+export function setSectionCover(fileId) {
+  if (fileId) {
+    db.prepare(`INSERT INTO app_settings (key, value) VALUES ('makers_cover', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(fileId);
+  } else {
+    db.prepare(`DELETE FROM app_settings WHERE key = 'makers_cover'`).run();
+  }
+}
+
+// Фото карточки мастера: своё или первое фото его позиций (никогда не чужое)
+export function getMakerCover(makerId) {
+  const maker = db.prepare('SELECT cover_photo FROM makers WHERE id = ?').get(makerId);
+  if (maker?.cover_photo) return maker.cover_photo;
+  const row = db.prepare(`SELECT photos FROM maker_items WHERE maker_id = ? AND photos <> '[]' ORDER BY id LIMIT 1`).get(makerId);
   return row ? parseJson(row.photos, [])[0] || null : null;
+}
+
+export function setMakerCoverPhoto(makerId, fileId) {
+  db.prepare('UPDATE makers SET cover_photo = ? WHERE id = ?').run(fileId || null, makerId);
 }
 
 export function createMakerItem(makerId, { title, priceText, body, bodyEntities, photos, category = 'other' }) {
