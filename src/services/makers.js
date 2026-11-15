@@ -69,6 +69,41 @@ function parsePrice(text) {
   return `от ${String(min).replace('.', ',')} р`;
 }
 
+// Строка-вариант: «▪️С печенью», «• С ветчиной и сыром», «- Рафаэло»
+const VARIANT_LINE_RE = /^\s*(?:▪️|▪|▫️|▫|◾️|◾|◽️|◽|•|·|🔸|🔹|🔺|✔️|➖|[-–—*])\s*(.+?)\s*$/u;
+
+/**
+ * Найти варианты внутри поста (несколько начинок под одним фото).
+ * Цена варианта — первая строка с ценой после него и до следующего варианта.
+ * Вариантами считаем, только если их хотя бы два.
+ */
+export function parseVariants(text) {
+  const variants = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(VARIANT_LINE_RE);
+    if (m) {
+      const name = m[1].replace(/[\s.:;,]+$/u, '').trim();
+      if (name && name.length <= 60) variants.push({ name, price: null });
+      continue;
+    }
+    const current = variants[variants.length - 1];
+    if (current && !current.price) {
+      const price = [...line.matchAll(PRICE_RE)][0];
+      if (price) current.price = `${price[2]} р`;
+    }
+  }
+  return variants.length >= 2 ? variants : [];
+}
+
+// «С печенью» → «с печенью» для перечислений внутри фразы
+export function variantNameInline(name) {
+  return name.charAt(0).toLowerCase() + name.slice(1);
+}
+
+export function variantsSummary(item) {
+  return item.variants.filter(v => v.in_stock).map(v => variantNameInline(v.name)).join(', ');
+}
+
 function parseTitle(text) {
   const firstLine = text.split('\n').map(l => l.trim()).find(Boolean) || '';
   let title = firstLine
@@ -94,6 +129,7 @@ export function parseMakerPost({ text = '', entities = [], photos = [] }) {
     bodyEntities: cleanEntities(entities).filter(e => e.offset < trimmedBody.length)
       .map(e => ({ ...e, length: Math.min(e.length, trimmedBody.length - e.offset) })),
     photos,
+    variants: parseVariants(trimmedBody),
   };
 }
 

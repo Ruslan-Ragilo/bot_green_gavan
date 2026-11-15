@@ -12,11 +12,11 @@ import {
   getAllMakers, getMakerItems, getMakerItem, createMakerItem, replaceMakerItemPost, updateMakerItemField,
   toggleMakerItemStock, deleteMakerItem, touchMakerStock, markMakerNotified,
   getSubscriberIds, countSubscribers, unsubscribe, findUserIdByUsername, deleteMaker,
-  getSectionCover, setSectionCover, setMakerCoverPhoto,
+  getSectionCover, setSectionCover, setMakerCoverPhoto, getMakerCover, setVariantStock, clearVariants,
 } from '../db/repositories/makers.js';
 import {
   MAKER_CATEGORIES, CATEGORY_BY_ID, parseMakerPost, formatWhen, isStockFresh, notifyCooldownLeftMinutes,
-  itemButtonLabel,
+  itemButtonLabel, variantsSummary,
 } from '../services/makers.js';
 import { buildItemCard } from './makers.js';
 import { syncMakerCommands } from '../services/botCommands.js';
@@ -97,7 +97,12 @@ export async function showPanel(ctx) {
   } else {
     r.nl(2).bold('Наличие').plain(' — нажмите на позицию, чтобы переключить ✅ / ❌:');
     for (const item of items.slice(0, MAX_ITEMS)) {
-      kb.text(`${item.in_stock ? '✅' : '❌'} ${item.title}`, `mkp:t:${item.id}`).row();
+      if (item.variants.length) {
+        const on = item.variants.filter(v => v.in_stock).length;
+        kb.text(`${on ? '✅' : '❌'} ${item.title} (${on} из ${item.variants.length}) ›`, `mkp:v:${item.id}`).row();
+      } else {
+        kb.text(`${item.in_stock ? '✅' : '❌'} ${item.title}`, `mkp:t:${item.id}`).row();
+      }
     }
     kb.text('👍 Наличие актуально', 'mkp:fresh').text('📣 Сообщить подписчикам', 'mkp:notify').row();
   }
@@ -197,10 +202,55 @@ makerPanelComposer.callbackQuery(/^mkp:t:(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     return showPanel(ctx);
   }
+  if (own.item.variants.length) {
+    await ctx.answerCallbackQuery();
+    return showVariants(ctx, own.item.id);
+  }
   const item = toggleMakerItemStock(own.item.id);
   touchMakerStock(own.maker.id);
   await ctx.answerCallbackQuery({ text: item.in_stock ? `✅ ${item.title} — в наличии` : `❌ ${item.title} — нет в наличии` });
   await showPanel(ctx);
+});
+
+// Наличие вариантов внутри одного поста (начинки блинов и т. п.)
+async function showVariants(ctx, itemId) {
+  const own = ownItem(ctx, itemId);
+  if (!own || !own.item.variants.length) return showPanel(ctx);
+  const { item } = own;
+  const r = rich().bold(`🧩 ${item.title}`).plain(' — что есть сейчас').nl(2)
+    .plain('Нажмите на вариант, чтобы переключить ✅ / ❌. Покупатели увидят, что есть, а остальное — под заказ.');
+  const kb = new InlineKeyboard();
+  item.variants.forEach((v, i) => {
+    kb.text(`${v.in_stock ? '✅' : '❌'} ${v.name}${v.price ? ` · ${v.price}` : ''}`, `mkp:vt:${item.id}:${i}`).row();
+  });
+  kb.text('✅ Всё есть', `mkp:vt:${item.id}:all`).text('❌ Ничего нет', `mkp:vt:${item.id}:none`).row();
+  kb.text('◀️ В кабинет', 'mkp:home');
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.callbackQuery(/^mkp:v:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await showVariants(ctx, Number(ctx.match[1]));
+});
+
+makerPanelComposer.callbackQuery(/^mkp:vt:(\d+):(\d+|all|none)$/, async (ctx) => {
+  const own = ownItem(ctx, Number(ctx.match[1]));
+  if (!own) {
+    await ctx.answerCallbackQuery();
+    return showPanel(ctx);
+  }
+  const mode = /^\d+$/.test(ctx.match[2]) ? Number(ctx.match[2]) : ctx.match[2];
+  setVariantStock(own.item.id, mode);
+  touchMakerStock(own.maker.id);
+  await ctx.answerCallbackQuery();
+  await showVariants(ctx, own.item.id);
+});
+
+makerPanelComposer.callbackQuery(/^mkp:vclr:(\d+)$/, async (ctx) => {
+  const own = ownItem(ctx, Number(ctx.match[1]));
+  if (own) clearVariants(own.item.id);
+  await ctx.answerCallbackQuery({ text: own ? 'Теперь это одна позиция без вариантов' : '' });
+  await showItemManage(ctx, Number(ctx.match[1]));
 });
 
 makerPanelComposer.callbackQuery('mkp:fresh', async (ctx) => {
@@ -211,52 +261,146 @@ makerPanelComposer.callbackQuery('mkp:fresh', async (ctx) => {
 });
 
 // ── Рассылка подписчикам ──────────────────────────────────
+// Мастер выбирает, о каких позициях сообщить (бот сам отмечает то, что появилось с прошлой рассылки).
+// Подписчик получает фото первой позиции, список «свежее в наличии» и кнопки сразу к этим позициям.
 
-function buildNotification(maker, items) {
+const notifySelections = new Map(); // userId -> { makerId, ids: Set<itemId> }
+const MAX_HIGHLIGHT_BUTTONS = 5;
+
+// «Блины: с печенью, с лисичками · от 15 р»
+function itemLine(item) {
+  const variants = item.variants.length ? `: ${variantsSummary(item)}` : '';
+  return `${item.title}${variants}${item.price_text ? ` · ${item.price_text}` : ''}`;
+}
+
+function buildNotification(maker, items, highlightIds) {
   const inStock = items.filter(i => i.in_stock);
-  const r = rich().bold(`🔔 ${maker.name}`).plain(' — обновлено наличие').nl(2);
-  if (inStock.length > 0) {
-    r.plain('Сейчас есть:').nl();
-    for (const item of inStock.slice(0, 30)) r.plain(`• ${itemButtonLabel(item)}`).nl();
-    if (inStock.length > 30) r.plain(`…и ещё ${inStock.length - 30}`).nl();
+  const highlighted = inStock.filter(i => highlightIds.has(i.id));
+  const others = inStock.filter(i => !highlightIds.has(i.id));
+
+  const r = rich();
+  if (highlighted.length > 0) {
+    r.bold(`🔔 ${maker.name}`).plain(' — свежее в наличии:').nl();
+    for (const item of highlighted) r.plain(`• ${itemLine(item)}`).nl();
+    if (others.length > 0) {
+      r.nl().italic(`Также есть: ${others.map(i => i.title).join(', ')}`);
+    }
   } else {
-    r.plain('Сейчас всё под заказ.').nl();
+    r.bold(`🔔 ${maker.name}`).plain(' — обновлено наличие').nl();
+    if (inStock.length > 0) for (const item of inStock) r.plain(`• ${itemLine(item)}`).nl();
+    else r.plain('Сейчас всё под заказ.');
   }
-  return { built: r.build(), inStockCount: inStock.length };
+
+  const kb = new InlineKeyboard();
+  for (const item of highlighted.slice(0, MAX_HIGHLIGHT_BUTTONS)) {
+    kb.text(`👀 ${item.title}`, `mk:i:${item.id}:0:m`).row();
+  }
+  kb.text('👩‍🍳 Всё наличие', `mk:m:${maker.id}`).text('🔕 Отписаться', `mk:unsub:${maker.id}`);
+
+  const photo = highlighted.find(i => i.photos.length)?.photos[0] || getMakerCover(maker.id);
+  return { built: r.build(photo ? 1024 : 4096), photo, kb };
+}
+
+function notifyBlocked(maker) {
+  const subs = countSubscribers(maker.id);
+  if (subs === 0) {
+    return 'Пока нет подписчиков. Они появятся, когда покупатели нажмут «🔔 Подписаться на мастера» в вашей карточке.';
+  }
+  const left = notifyCooldownLeftMinutes(maker);
+  if (left > 0) {
+    const h = Math.floor(left / 60);
+    return `Рассылка уже была недавно. Следующую можно отправить через ${h ? `${h} ч ` : ''}${left % 60} мин — чтобы подписчики не уставали от уведомлений.`;
+  }
+  return null;
+}
+
+async function showNotifyPicker(ctx, maker) {
+  const blocked = notifyBlocked(maker);
+  const r = rich().bold('📣 Сообщить подписчикам').nl(2);
+  const kb = new InlineKeyboard();
+  if (blocked) {
+    r.plain(blocked);
+    kb.text('◀️ В кабинет', 'mkp:home');
+    return show(ctx, r.build(), kb);
+  }
+
+  const inStock = getMakerItems(maker.id).filter(i => i.in_stock);
+  if (inStock.length === 0) {
+    r.plain('Сейчас ничего не отмечено в наличии. Отметьте позиции ✅ в кабинете — и сообщите подписчикам.');
+    kb.text('◀️ В кабинет', 'mkp:home');
+    return show(ctx, r.build(), kb);
+  }
+
+  let sel = notifySelections.get(ctx.from.id);
+  if (!sel || sel.makerId !== maker.id) {
+    // По умолчанию — то, что появилось в наличии после прошлой рассылки
+    const before = new Set(maker.notified_stock);
+    sel = { makerId: maker.id, ids: new Set(inStock.filter(i => !before.has(i.id)).map(i => i.id)) };
+    notifySelections.set(ctx.from.id, sel);
+  }
+  for (const id of [...sel.ids]) if (!inStock.some(i => i.id === id)) sel.ids.delete(id);
+
+  r.plain(`Получат ${countSubscribers(maker.id)} подписчиков.`).nl()
+    .plain('Отметьте, о чём рассказать — это будет вверху сообщения с фото и кнопками. Новое с прошлой рассылки уже отмечено.');
+  for (const item of inStock.slice(0, MAX_ITEMS)) {
+    kb.text(`${sel.ids.has(item.id) ? '☑️' : '⬜'} ${item.title}`, `mkp:ns:${item.id}`).row();
+  }
+  kb.text(sel.ids.size ? `👀 Предпросмотр (${sel.ids.size})` : '👀 Предпросмотр', 'mkp:npv').row();
+  kb.text('◀️ В кабинет', 'mkp:home');
+  return show(ctx, r.build(), kb);
 }
 
 makerPanelComposer.callbackQuery('mkp:notify', async (ctx) => {
   await ctx.answerCallbackQuery();
   const maker = ownMaker(ctx);
   if (!maker) return showPanel(ctx);
-  const subs = countSubscribers(maker.id);
-  const left = notifyCooldownLeftMinutes(maker);
-  const kb = new InlineKeyboard();
-  const r = rich().bold('📣 Сообщить подписчикам').nl(2);
+  notifySelections.delete(ctx.from.id); // каждый раз начинаем с «нового с прошлой рассылки»
+  await showNotifyPicker(ctx, maker);
+});
 
-  if (subs === 0) {
-    r.plain('Пока нет подписчиков. Они появятся, когда покупатели нажмут «🔔 Сообщать о наличии» в вашей карточке.');
-  } else if (left > 0) {
-    const h = Math.floor(left / 60);
-    r.plain(`Рассылка уже была недавно. Следующую можно отправить через ${h ? `${h} ч ` : ''}${left % 60} мин — чтобы подписчики не уставали от уведомлений.`);
-  } else {
-    const { built } = buildNotification(maker, getMakerItems(maker.id));
-    r.plain(`Получат ${subs} подписчиков. Вот так будет выглядеть сообщение:`).nl(2).rich(built.text, built.entities);
-    kb.text('📣 Отправить', 'mkp:notify_go').row();
+makerPanelComposer.callbackQuery(/^mkp:ns:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const maker = ownMaker(ctx);
+  if (!maker) return showPanel(ctx);
+  const sel = notifySelections.get(ctx.from.id);
+  const id = Number(ctx.match[1]);
+  if (sel && sel.makerId === maker.id) {
+    if (sel.ids.has(id)) sel.ids.delete(id);
+    else sel.ids.add(id);
   }
-  kb.text('◀️ В кабинет', 'mkp:home');
-  await show(ctx, r.build(), kb);
+  await showNotifyPicker(ctx, maker);
+});
+
+// Предпросмотр: ровно то сообщение, которое получат подписчики
+makerPanelComposer.callbackQuery('mkp:npv', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const maker = ownMaker(ctx);
+  const sel = notifySelections.get(ctx.from.id);
+  if (!maker || !sel || sel.makerId !== maker.id || notifyBlocked(maker)) return maker ? showNotifyPicker(ctx, maker) : showPanel(ctx);
+  const { built, photo } = buildNotification(maker, getMakerItems(maker.id), sel.ids);
+  const kb = new InlineKeyboard().text('📣 Отправить', 'mkp:notify_go').row().text('◀️ Изменить выбор', 'mkp:nback');
+  await show(ctx, built, kb, photo ? { photo } : {});
+});
+
+makerPanelComposer.callbackQuery('mkp:nback', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const maker = ownMaker(ctx);
+  if (!maker) return showPanel(ctx);
+  await showNotifyPicker(ctx, maker);
 });
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function sendMakerNotification(api, maker) {
-  const { built } = buildNotification(maker, getMakerItems(maker.id));
-  const kb = new InlineKeyboard().text('👀 Открыть', `mk:m:${maker.id}`).text('🔕 Отписаться', `mk:unsub:${maker.id}`);
+export async function sendMakerNotification(api, maker, highlightIds = new Set()) {
+  const { built, photo, kb } = buildNotification(maker, getMakerItems(maker.id), highlightIds);
   let sent = 0;
   for (const userId of getSubscriberIds(maker.id)) {
     try {
-      await api.sendMessage(userId, built.text, { entities: built.entities, reply_markup: kb });
+      if (photo) {
+        await api.sendPhoto(userId, photo, { caption: built.text, caption_entities: built.entities, reply_markup: kb });
+      } else {
+        await api.sendMessage(userId, built.text, { entities: built.entities, reply_markup: kb });
+      }
       sent += 1;
     } catch (err) {
       // Пользователь заблокировал бота — убираем подписку, чтобы не слать в пустоту
@@ -270,15 +414,20 @@ export async function sendMakerNotification(api, maker) {
 
 makerPanelComposer.callbackQuery('mkp:notify_go', async (ctx) => {
   const maker = ownMaker(ctx);
-  if (!maker || notifyCooldownLeftMinutes(maker) > 0) {
+  if (!maker || notifyBlocked(maker)) {
     await ctx.answerCallbackQuery();
     return showPanel(ctx);
   }
-  markMakerNotified(maker.id);
+  const sel = notifySelections.get(ctx.from.id);
+  const highlightIds = sel && sel.makerId === maker.id ? sel.ids : new Set();
+  notifySelections.delete(ctx.from.id);
+
+  const inStockIds = getMakerItems(maker.id).filter(i => i.in_stock).map(i => i.id);
+  markMakerNotified(maker.id, inStockIds);
   touchMakerStock(maker.id);
   await ctx.answerCallbackQuery({ text: '📣 Рассылка запущена' });
   await showPanel(ctx);
-  sendMakerNotification(ctx.api, maker)
+  sendMakerNotification(ctx.api, maker, highlightIds)
     .then((sent) => console.log(`[Makers] «${maker.name}»: уведомление получили ${sent} подписчиков`))
     .catch((err) => console.error('[Makers] Ошибка рассылки:', err));
 });
@@ -506,8 +655,13 @@ async function showItemManage(ctx, itemId, { justSaved = false } = {}) {
   r.bold(item.title).nl()
     .plain(`💰 Цена: ${item.price_text || 'не найдена в тексте'}`).nl()
     .plain(`🗂 Раздел: ${category.title}`).nl()
-    .plain(`🖼 Фото: ${item.photos.length}`).nl()
-    .plain(item.in_stock ? '✅ В наличии' : '❌ Нет в наличии (под заказ)');
+    .plain(`🖼 Фото: ${item.photos.length}`).nl();
+  if (item.variants.length) {
+    r.plain(`🧩 Варианты (${item.variants.length}): ${item.variants.map(v => `${v.in_stock ? '✅' : '❌'} ${v.name}`).join(', ')}`);
+    if (justSaved) r.nl().italic('Нашёл в посте несколько вариантов — наличие можно отмечать по каждому. Если это не варианты, нажмите «Это не варианты».');
+  } else {
+    r.plain(item.in_stock ? '✅ В наличии' : '❌ Нет в наличии (под заказ)');
+  }
   if (justSaved && item.category === 'other') {
     r.nl(2).bold('Выберите раздел').plain(' — по нему покупатели находят позицию в сводке «Что есть сейчас»:');
   }
@@ -519,8 +673,11 @@ async function showItemManage(ctx, itemId, { justSaved = false } = {}) {
   });
   kb.row()
     .text('✏️ Название', `mkp:f:${item.id}:title`).text('✏️ Цена', `mkp:f:${item.id}:price_text`).row()
-    .text('🔁 Заменить пост', `mkp:rep:${item.id}`).text('👀 Как видят', `mkp:pv:${item.id}:0`).row()
-    .text('🗑 Удалить', `mkp:del:${item.id}`).row()
+    .text('🔁 Заменить пост', `mkp:rep:${item.id}`).text('👀 Как видят', `mkp:pv:${item.id}:0`).row();
+  if (item.variants.length) {
+    kb.text('🧩 Наличие вариантов', `mkp:v:${item.id}`).text('✖️ Это не варианты', `mkp:vclr:${item.id}`).row();
+  }
+  kb.text('🗑 Удалить', `mkp:del:${item.id}`).row()
     .text('◀️ К позициям', 'mkp:items').text('🏠 В кабинет', 'mkp:home');
   return show(ctx, r.build(), kb);
 }

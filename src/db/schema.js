@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS makers (
   cover_photo TEXT,                -- file_id фото для карточки мастера (логотип, сам мастер, ассортимент)
   stock_updated_at TEXT,           -- когда мастер последний раз подтверждал наличие (UTC)
   last_notified_at TEXT,           -- последняя рассылка подписчикам (UTC)
+  notified_stock TEXT,             -- JSON: id позиций, которые были в наличии на момент прошлой рассылки
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -166,6 +167,7 @@ CREATE TABLE IF NOT EXISTS maker_items (
   body TEXT NOT NULL DEFAULT '',
   body_entities TEXT,
   photos TEXT NOT NULL DEFAULT '[]', -- JSON-массив file_id
+  variants TEXT,                   -- JSON: [{ name, price, in_stock }] — начинки/варианты внутри одного поста
   in_stock INTEGER NOT NULL DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

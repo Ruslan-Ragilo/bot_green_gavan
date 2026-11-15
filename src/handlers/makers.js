@@ -10,7 +10,7 @@ import {
 } from '../db/repositories/makers.js';
 import {
   MAKER_CATEGORIES, CATEGORY_BY_ID, SECTION_TITLE, isStockFresh, formatWhen, staleBoundaryUtc,
-  itemButtonLabel, contactUrl,
+  itemButtonLabel, contactUrl, variantsSummary, variantNameInline,
 } from '../services/makers.js';
 import { rich } from '../utils/richText.js';
 import { renderScreen } from '../utils/cleanChat.js';
@@ -88,7 +88,8 @@ makersComposer.callbackQuery('mk:now', async (ctx) => {
       if (inCat.length === 0) continue;
       r.bold(cat.title).nl();
       for (const item of inCat) {
-        r.plain(`• ${item.title}`).italic(` — ${item.maker_name}`).nl();
+        const variants = item.variants.length ? `: ${variantsSummary(item)}` : '';
+        r.plain(`• ${item.title}${variants}`).italic(` — ${item.maker_name}`).nl();
         if (shown < MAX_LIST_BUTTONS) {
           kb.text(`${item.title} · ${item.maker_name}`, `mk:i:${item.id}:0:n`).row();
           shown += 1;
@@ -151,7 +152,7 @@ export async function showMaker(ctx, makerId, { full = false } = {}) {
 
   const subscribed = isSubscribed(ctx.from.id, maker.id);
   writeButton(kb, maker);
-  kb.text(subscribed ? '🔕 Отписаться от новостей' : '🔔 Сообщать о наличии', `mk:sub:${maker.id}:${full ? 'a' : 'm'}`).row();
+  kb.text(subscribed ? '🔕 Отписаться от мастера' : '🔔 Подписаться на мастера', `mk:sub:${maker.id}:${full ? 'a' : 'm'}`).row();
   kb.text('◀️ Назад', full ? `mk:m:${maker.id}` : 'mk:home');
   return showWithCover(ctx, r, kb, getMakerCover(maker.id));
 }
@@ -197,7 +198,10 @@ makersComposer.callbackQuery(/^mk:sub:(\d+):([ma])$/, async (ctx) => {
     await ctx.answerCallbackQuery({ text: 'Вы отписались от новостей мастера' });
   } else {
     subscribe(ctx.from.id, makerId);
-    await ctx.answerCallbackQuery({ text: `🔔 Готово! Пришлю, когда ${maker.name} обновит наличие.`, show_alert: true });
+    await ctx.answerCallbackQuery({
+      text: `🔔 Вы подписаны на «${maker.name}». Пришлю, когда появится что-то свежее, — с фото и кнопкой к позиции.`,
+      show_alert: true,
+    });
   }
   await showMaker(ctx, makerId, { full: ctx.match[2] === 'a' });
 });
@@ -227,9 +231,20 @@ export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview
   if (item.body) r.rich(item.body, item.body_entities).nl(2);
   else r.bold(item.title).nl(2);
 
-  if (item.in_stock && fresh) r.plain('✅ Есть в наличии');
-  else if (!fresh) r.plain('ℹ️ Наличие уточняйте у мастера');
-  else r.plain('📝 Под заказ');
+  if (!fresh) {
+    r.plain('ℹ️ Наличие уточняйте у мастера');
+  } else if (item.variants.length) {
+    // Варианты в одном посте: что есть сейчас, остальное — под заказ
+    const yes = item.variants.filter(v => v.in_stock).map(v => variantNameInline(v.name));
+    const no = item.variants.filter(v => !v.in_stock).map(v => variantNameInline(v.name));
+    if (yes.length) r.plain('✅ Сейчас есть: ').bold(yes.join(', '));
+    if (yes.length && no.length) r.nl();
+    if (no.length) r.plain(`📝 Под заказ: ${no.join(', ')}`);
+  } else if (item.in_stock) {
+    r.plain('✅ Есть в наличии');
+  } else {
+    r.plain('📝 Под заказ');
+  }
   r.nl().plain(`👩‍🍳 ${maker.name}`);
 
   const kb = new InlineKeyboard();

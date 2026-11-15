@@ -16,7 +16,7 @@ function parseJson(value, fallback) {
 
 function mapMaker(row) {
   if (!row) return null;
-  return { ...row, about_entities: parseJson(row.about_entities, []) };
+  return { ...row, about_entities: parseJson(row.about_entities, []), notified_stock: parseJson(row.notified_stock, []) };
 }
 
 function mapItem(row) {
@@ -25,6 +25,7 @@ function mapItem(row) {
     ...row,
     body_entities: parseJson(row.body_entities, []),
     photos: parseJson(row.photos, []),
+    variants: parseJson(row.variants, []).map(v => ({ ...v, in_stock: Boolean(v.in_stock) })),
     in_stock: Boolean(row.in_stock),
   };
 }
@@ -105,8 +106,10 @@ export function touchMakerStock(id) {
   db.prepare(`UPDATE makers SET stock_updated_at = datetime('now') WHERE id = ?`).run(id);
 }
 
-export function markMakerNotified(id) {
-  db.prepare(`UPDATE makers SET last_notified_at = datetime('now') WHERE id = ?`).run(id);
+// Запоминаем, что было в наличии на момент рассылки, — в следующий раз бот предложит только новое
+export function markMakerNotified(id, inStockIds = []) {
+  db.prepare(`UPDATE makers SET last_notified_at = datetime('now'), notified_stock = ? WHERE id = ?`)
+    .run(JSON.stringify(inStockIds), id);
 }
 
 // ── Позиции ───────────────────────────────────────────────
@@ -157,21 +160,55 @@ export function setMakerCoverPhoto(makerId, fileId) {
   db.prepare('UPDATE makers SET cover_photo = ? WHERE id = ?').run(fileId || null, makerId);
 }
 
-export function createMakerItem(makerId, { title, priceText, body, bodyEntities, photos, category = 'other' }) {
+const variantsJson = (variants) => (variants && variants.length
+  ? JSON.stringify(variants.map(v => ({ name: v.name, price: v.price || null, in_stock: v.in_stock ? 1 : 0 })))
+  : null);
+
+export function createMakerItem(makerId, { title, priceText, body, bodyEntities, photos, variants = [], category = 'other' }) {
   const info = db.prepare(`
-    INSERT INTO maker_items (maker_id, title, price_text, category, body, body_entities, photos)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(makerId, title, priceText, category, body, toJson(bodyEntities), JSON.stringify(photos || []));
+    INSERT INTO maker_items (maker_id, title, price_text, category, body, body_entities, photos, variants)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(makerId, title, priceText, category, body, toJson(bodyEntities), JSON.stringify(photos || []),
+    variantsJson(variants.map(v => ({ ...v, in_stock: true }))));
   return getMakerItem(info.lastInsertRowid);
 }
 
-// Заменить пост позиции (категория и наличие сохраняются)
-export function replaceMakerItemPost(id, { title, priceText, body, bodyEntities, photos }) {
+// Заменить пост позиции (категория и наличие сохраняются; у вариантов с тем же названием — тоже)
+export function replaceMakerItemPost(id, { title, priceText, body, bodyEntities, photos, variants = [] }) {
+  const current = getMakerItem(id);
+  const known = new Map((current?.variants || []).map(v => [v.name.toLowerCase(), v.in_stock]));
+  const merged = variants.map(v => ({ ...v, in_stock: known.get(v.name.toLowerCase()) ?? current?.in_stock ?? true }));
   db.prepare(`
     UPDATE maker_items
-    SET title = ?, price_text = ?, body = ?, body_entities = ?, photos = ?, updated_at = datetime('now')
+    SET title = ?, price_text = ?, body = ?, body_entities = ?, photos = ?, variants = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(title, priceText, body, toJson(bodyEntities), JSON.stringify(photos || []), id);
+  `).run(title, priceText, body, toJson(bodyEntities), JSON.stringify(photos || []), variantsJson(merged), id);
+  if (merged.length) syncItemStockFromVariants(id);
+  return getMakerItem(id);
+}
+
+// Позиция с вариантами «в наличии», если есть хотя бы один вариант
+function syncItemStockFromVariants(id) {
+  const item = getMakerItem(id);
+  if (!item?.variants.length) return;
+  db.prepare('UPDATE maker_items SET in_stock = ? WHERE id = ?').run(item.variants.some(v => v.in_stock) ? 1 : 0, id);
+}
+
+// mode: index варианта — переключить; 'all' — все в наличии; 'none' — ничего нет
+export function setVariantStock(id, mode) {
+  const item = getMakerItem(id);
+  if (!item?.variants.length) return item;
+  const variants = item.variants.map((v, i) => ({
+    ...v,
+    in_stock: mode === 'all' ? true : mode === 'none' ? false : (i === mode ? !v.in_stock : v.in_stock),
+  }));
+  db.prepare(`UPDATE maker_items SET variants = ?, updated_at = datetime('now') WHERE id = ?`).run(variantsJson(variants), id);
+  syncItemStockFromVariants(id);
+  return getMakerItem(id);
+}
+
+export function clearVariants(id) {
+  db.prepare(`UPDATE maker_items SET variants = NULL, updated_at = datetime('now') WHERE id = ?`).run(id);
   return getMakerItem(id);
 }
 
