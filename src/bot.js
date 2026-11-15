@@ -13,6 +13,8 @@ import { kitchenComposer } from './handlers/kitchen.js';
 import { makersComposer } from './handlers/makers.js';
 import { makerPanelComposer } from './handlers/makerPanel.js';
 import { resetPendingInputMiddleware } from './utils/pendingInput.js';
+import { USER_COMMANDS, ADMIN_COMMANDS, syncMakerCommands } from './services/botCommands.js';
+import { getAllMakers } from './db/repositories/makers.js';
 
 export function createBot() {
   const botOptions = {
@@ -144,11 +146,7 @@ export function createBot() {
 export async function setupBotCommands(bot) {
   try {
     // 1. Команды для обычных пользователей в личных сообщениях (транспорт)
-    await bot.api.setMyCommands([
-      { command: 'start', description: '🚌 Расписание транспорта' },
-      { command: 'transport', description: '🚌 Выбрать транспорт' },
-      { command: 'support', description: '❤️ Поддержка проекта и связь' },
-    ], {
+    await bot.api.setMyCommands(USER_COMMANDS, {
       scope: { type: 'all_private_chats' },
     });
 
@@ -171,17 +169,16 @@ export async function setupBotCommands(bot) {
     // 3. Персональное меню в инпуте для администратора бота
     for (const adminId of config.adminIds) {
       try {
-        await bot.api.setMyCommands([
-          { command: 'admin', description: '👑 Панель администратора' },
-          { command: 'start', description: '🚌 Расписание транспорта' },
-          { command: 'transport', description: '🚌 Выбрать транспорт' },
-          { command: 'broadcast', description: '📢 Рассылка жильцам ЖК' },
-        ], {
+        await bot.api.setMyCommands(ADMIN_COMMANDS, {
           scope: { type: 'chat', chat_id: adminId },
         });
       } catch (e) {
         console.warn(`[Commands] Не удалось зарегистрировать меню админа для ${adminId}:`, e.message);
       }
+    }
+    // 4. Мастерам — меню с кабинетом мастера
+    for (const maker of getAllMakers()) {
+      if (maker.status === 'active') await syncMakerCommands(bot.api, maker.user_id, true);
     }
     console.log('🔘 Быстрые команды в кнопке «Меню» успешно зарегистрированы.');
   } catch (err) {

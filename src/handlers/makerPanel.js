@@ -18,6 +18,7 @@ import {
   itemButtonLabel,
 } from '../services/makers.js';
 import { buildItemCard } from './makers.js';
+import { syncMakerCommands } from '../services/botCommands.js';
 import { rich, cleanEntities } from '../utils/richText.js';
 import { renderScreen } from '../utils/cleanChat.js';
 import { setPendingInput, getPendingInput, clearPendingInput } from '../utils/pendingInput.js';
@@ -561,6 +562,7 @@ makerPanelComposer.callbackQuery(/^mka:(ok|no):(\d+)$/, async (ctx) => {
 
   const approve = ctx.match[1] === 'ok';
   setMakerStatus(maker.id, approve ? 'active' : 'rejected');
+  await syncMakerCommands(ctx.api, maker.user_id, approve);
   await ctx.answerCallbackQuery({ text: approve ? 'Одобрено' : 'Отклонено' });
   await ctx.editMessageReplyMarkup({
     reply_markup: new InlineKeyboard().text(approve ? '✅ Одобрено' : '❌ Отклонено', 'noop'),
@@ -568,7 +570,7 @@ makerPanelComposer.callbackQuery(/^mka:(ok|no):(\d+)$/, async (ctx) => {
 
   try {
     await ctx.api.sendMessage(maker.user_id, approve
-      ? `🎉 Заявка «${maker.name}» одобрена! Добавьте позиции и отметьте наличие в кабинете мастера.`
+      ? `🎉 Заявка «${maker.name}» одобрена! Добавьте позиции и отметьте наличие в кабинете мастера — он всегда открывается командой /master (кнопка «Меню» возле поля ввода).`
       : `К сожалению, заявка «${maker.name}» не одобрена. Если есть вопросы — напишите автору бота.`,
     approve ? { reply_markup: new InlineKeyboard().text('🧑‍🍳 Открыть кабинет', 'mkp:home') } : {});
   } catch (err) {
@@ -603,7 +605,9 @@ makerPanelComposer.callbackQuery(/^mka:tog:(\d+)$/, async (ctx) => {
   if (!isAdmin(ctx.from.id)) return ctx.answerCallbackQuery();
   const maker = getMaker(Number(ctx.match[1]));
   if (maker && (maker.status === 'active' || maker.status === 'hidden')) {
-    setMakerStatus(maker.id, maker.status === 'active' ? 'hidden' : 'active');
+    const nowActive = maker.status !== 'active';
+    setMakerStatus(maker.id, nowActive ? 'active' : 'hidden');
+    await syncMakerCommands(ctx.api, maker.user_id, nowActive);
   }
   await ctx.answerCallbackQuery();
   const { built, kb } = makersAdminView();
@@ -630,6 +634,8 @@ makerPanelComposer.command('maker_owner', async (ctx) => {
     return;
   }
   setMakerOwner(maker.id, userId);
+  if (maker.user_id !== userId) await syncMakerCommands(ctx.api, maker.user_id, false);
+  await syncMakerCommands(ctx.api, userId, maker.status === 'active');
   if (/^@/.test(who) || !/^\d+$/.test(who)) updateMakerProfile(maker.id, { contact: `@${who.replace(/^@/, '')}` });
   await ctx.reply(`Готово: карточка #${maker.id} «${maker.name}» теперь у ${who}.`);
 });
