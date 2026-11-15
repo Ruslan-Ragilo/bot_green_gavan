@@ -1,4 +1,5 @@
 import { Composer, InlineKeyboard } from 'grammy';
+import { renderScreen } from '../utils/cleanChat.js';
 import { getCart, setCartItemQuantity, removeCartItem, clearCart } from '../db/repositories/cart.js';
 import { createOrderFromCart, setOrderGroupMessageId } from '../db/repositories/orders.js';
 import {
@@ -83,7 +84,7 @@ cartComposer.command('cart', async (ctx) => {
   const text = renderCartText(cart);
   const keyboard = cart.isEmpty ? emptyCartKeyboard() : cartKeyboard(cart);
 
-  await ctx.reply(text, {
+  await renderScreen(ctx, text, {
     parse_mode: 'Markdown',
     reply_markup: keyboard,
   });
@@ -297,7 +298,7 @@ cartComposer.on('message:text', async (ctx, next) => {
 
     if (!result.ok) {
       if (result.error === 'too_soon_or_past') {
-        return ctx.reply(
+        return renderScreen(ctx, 
           `⚠️ *Время «${input}» уже прошло или слишком близко.*\n\n` +
           `Сейчас в Минске: *${result.currentStr}*.\n` +
           `Минимальное доступное время: *${result.minAllowedStr}* (нужно минимум 15 минут на готовку).\n\n` +
@@ -309,7 +310,7 @@ cartComposer.on('message:text', async (ctx, next) => {
         );
       }
 
-      return ctx.reply(
+      return renderScreen(ctx, 
         `⚠️ *Неверный формат времени.*\n\n` +
         `Пожалуйста, укажите время в формате ЧЧ:ММ (например: \`14:30\`, \`18:00\` или \`19:15\`):`,
         {
@@ -325,12 +326,12 @@ cartComposer.on('message:text', async (ctx, next) => {
     const cart = getCart(userId);
 
     if (cart.isEmpty) {
-      return ctx.reply('Корзина пуста.', { reply_markup: emptyCartKeyboard() });
+      return renderScreen(ctx, 'Корзина пуста.', { reply_markup: emptyCartKeyboard() });
     }
 
     const { check } = checkTimeForCart(cart, timeKey);
     if (!check.ok) {
-      return ctx.reply(renderTimeScreen(cart, check.message), {
+      return renderScreen(ctx, renderTimeScreen(cart, check.message), {
         parse_mode: 'Markdown',
         reply_markup: timeSelectionKeyboard(check.suggestion),
       });
@@ -339,7 +340,7 @@ cartComposer.on('message:text', async (ctx, next) => {
     const comment = userComments.get(userId);
     const text = renderConfirmText(cart, desiredTimeLabel, comment);
 
-    return ctx.reply(text, {
+    return renderScreen(ctx, text, {
       parse_mode: 'Markdown',
       reply_markup: orderConfirmKeyboard(timeKey, Boolean(comment)),
     });
@@ -357,12 +358,12 @@ cartComposer.on('message:text', async (ctx, next) => {
     const cart = getCart(userId);
 
     if (cart.isEmpty) {
-      return ctx.reply('Корзина пуста.', { reply_markup: emptyCartKeyboard() });
+      return renderScreen(ctx, 'Корзина пуста.', { reply_markup: emptyCartKeyboard() });
     }
 
     const text = renderConfirmText(cart, desiredTimeLabel, comment, 'Пожелание сохранено! Нажмите «Подтвердить предзаказ»:');
 
-    return ctx.reply(text, {
+    return renderScreen(ctx, text, {
       parse_mode: 'Markdown',
       reply_markup: orderConfirmKeyboard(timeKey, true),
     });

@@ -104,6 +104,12 @@ async function executeRenderScreen(ctx, text, extra, seq, userId, chatId, option
       if (isStale()) return;
 
       if (clickedMsgId) {
+        // Нажали кнопку на старом сообщении (выше в чате) — оно стало экраном,
+        // а прежний экран убираем, чтобы в чате не висели два меню одновременно
+        const prevScreenId = getLastMessageId(userId);
+        if (prevScreenId && prevScreenId !== clickedMsgId) {
+          await safeDeleteMessage(ctx, chatId, prevScreenId);
+        }
         setLastMessageId(userId, clickedMsgId);
       }
       return;

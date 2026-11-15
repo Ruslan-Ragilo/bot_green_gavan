@@ -1,4 +1,5 @@
 import { Composer, InlineKeyboard } from 'grammy';
+import { renderScreen } from '../utils/cleanChat.js';
 import { getUserOrders, getOrderById, cancelOrderByClient, updateOrderDesiredTime } from '../db/repositories/orders.js';
 import { clientOrderKeyboard, orderEditTimeKeyboard } from '../keyboards/client.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
@@ -89,7 +90,7 @@ ordersComposer.command('orders', async (ctx) => {
       .text('🍽 Выбрать заведение', 'catalog:places').row()
       .text('◀️ В главное меню', 'menu:main');
 
-    return ctx.reply('📋 *У вас пока нет заказов.*\n\nВыберите заведение и оформите первый заказ!', {
+    return renderScreen(ctx, '📋 *У вас пока нет заказов.*\n\nВыберите заведение и оформите первый заказ!', {
       parse_mode: 'Markdown',
       reply_markup: emptyKeyboard,
     });
@@ -107,7 +108,7 @@ ordersComposer.command('orders', async (ctx) => {
     `Нажмите на заказ, чтобы посмотреть детали и статус готовности:`
   );
 
-  await ctx.reply(text, {
+  await renderScreen(ctx, text, {
     parse_mode: 'Markdown',
     reply_markup: keyboard,
   });
@@ -354,18 +355,18 @@ ordersComposer.on('message:text', async (ctx, next) => {
   if (!result.ok) {
     const backKeyboard = new InlineKeyboard().text('◀️ Назад', `order:change_time:${orderId}`);
     if (result.error === 'too_soon_or_past') {
-      return ctx.reply(
+      return renderScreen(ctx, 
         `⚠️ Время «${input}» уже прошло или слишком близко.\n\n` +
         `Сейчас: *${result.currentStr}*, минимальное: *${result.minAllowedStr}*`,
         { parse_mode: 'Markdown', reply_markup: backKeyboard }
       );
     }
-    return ctx.reply(
+    return renderScreen(ctx, 
       `⚠️ Неверный формат. Укажите время вида \`19:00\` или \`18:30\`:`,
       { parse_mode: 'Markdown', reply_markup: backKeyboard }
     );
   }
 
   clearPendingInput(userId);
-  await changeOrderTime(ctx, orderId, result.timeKey, (text, options) => ctx.reply(text, options));
+  await changeOrderTime(ctx, orderId, result.timeKey, (text, options) => renderScreen(ctx, text, options));
 });

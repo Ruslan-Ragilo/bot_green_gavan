@@ -131,6 +131,18 @@ export function getInStockItems(sinceUtc) {
   `).all(sinceUtc).map(mapItem);
 }
 
+// Обложка раздела: первое фото у мастера, который свежее всех обновлял наличие
+export function getSectionCover() {
+  const row = db.prepare(`
+    SELECT i.photos FROM maker_items i
+    JOIN makers m ON m.id = i.maker_id
+    WHERE m.status = 'active' AND i.photos <> '[]'
+    ORDER BY m.stock_updated_at IS NULL, m.stock_updated_at DESC, i.id
+    LIMIT 1
+  `).get();
+  return row ? parseJson(row.photos, [])[0] || null : null;
+}
+
 export function createMakerItem(makerId, { title, priceText, body, bodyEntities, photos, category = 'other' }) {
   const info = db.prepare(`
     INSERT INTO maker_items (maker_id, title, price_text, category, body, body_entities, photos)

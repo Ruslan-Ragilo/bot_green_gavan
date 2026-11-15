@@ -67,6 +67,9 @@ export async function showPanel(ctx) {
   if (maker.status === 'pending') {
     r.bold('⏳ Заявка на рассмотрении').nl(2)
       .plain(`«${maker.name}» — проверим и откроем доступ. Я пришлю сообщение, как только всё будет готово.`);
+    if (!maker.contact) {
+      r.nl(2).italic('У вас в Telegram не указан username, поэтому кнопка «Написать» не откроет вашу личку. После одобрения укажите контакт в кабинете: «Описание и контакт».');
+    }
     kb.text('◀️ Назад', 'mk:home');
     return show(ctx, r.build(), kb);
   }
@@ -280,9 +283,11 @@ makerPanelComposer.callbackQuery('mkp:notify_go', async (ctx) => {
 
 // ── Добавление и замена поста ─────────────────────────────
 
-function askPost(ctx, { replaceItemId = null } = {}) {
+function askPost(ctx, { replaceItemId = null, error = null } = {}) {
   setPendingInput(ctx.from.id, 'maker_post', { replaceItemId });
-  const r = rich().bold(replaceItemId ? '🔁 Заменить пост позиции' : '➕ Новая позиция').nl(2)
+  const r = rich().bold(replaceItemId ? '🔁 Заменить пост позиции' : '➕ Новая позиция').nl(2);
+  if (error) r.plain(`⚠️ ${error}`).nl(2);
+  r
     .plain('Пришлите пост так же, как публикуете в группе:').nl()
     .plain('• одно фото или альбом (до 10 фото);').nl()
     .plain('• в подписи — описание: первая строка станет названием, строка вида «0,5кг - 14р» — ценой.').nl(2)
@@ -332,8 +337,7 @@ async function savePost(ctx, { photos, text, entities, replaceItemId, messageIds
   if (!maker) return;
 
   if (!text.trim() && photos.length === 0) {
-    setPendingInput(ctx.from.id, 'maker_post', { replaceItemId });
-    await ctx.reply('Нужно фото с подписью или текст с описанием. Попробуйте ещё раз.');
+    await askPost(ctx, { replaceItemId, error: 'Нужно фото с подписью или текст с описанием. Попробуйте ещё раз.' });
     return;
   }
 
@@ -410,8 +414,10 @@ async function handleTextInput(ctx, next) {
   const nameState = getPendingInput(userId, 'maker_apply_name');
   if (nameState) {
     if (text.length < 2 || text.length > 60) {
-      await ctx.reply('Название должно быть от 2 до 60 символов. Попробуйте ещё раз.');
-      return;
+      return show(ctx, rich()
+        .bold('📝 Заявка мастера — шаг 1 из 2').nl(2)
+        .plain('⚠️ Название должно быть от 2 до 60 символов. Попробуйте ещё раз.')
+        .build(), new InlineKeyboard().text('✖️ Отмена', 'mkp:home'));
     }
     setPendingInput(userId, 'maker_apply_about', { name: text });
     return askAbout(ctx, '📝 Заявка мастера — шаг 2 из 2');
@@ -425,9 +431,6 @@ async function handleTextInput(ctx, next) {
     const existing = getMakerByUser(userId);
     const maker = existing ? resubmitMaker(existing.id, data) : createMaker({ userId, ...data });
     await notifyAdminsAboutApplication(ctx.api, maker, ctx.from);
-    if (!contact) {
-      await ctx.reply('У вас в Telegram не указан username, поэтому кнопка «Написать» не сможет открыть вашу личку. После одобрения укажите контакт в кабинете: «Описание и контакт».');
-    }
     return showPanel(ctx);
   }
 

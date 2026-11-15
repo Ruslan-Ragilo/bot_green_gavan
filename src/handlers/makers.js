@@ -5,7 +5,7 @@
  */
 import { Composer, InlineKeyboard } from 'grammy';
 import {
-  getActiveMakers, getMaker, getMakerItems, getMakerItem, getInStockItems,
+  getActiveMakers, getMaker, getMakerItems, getMakerItem, getInStockItems, getSectionCover,
   isSubscribed, subscribe, unsubscribe,
 } from '../db/repositories/makers.js';
 import {
@@ -21,6 +21,22 @@ const MAX_LIST_BUTTONS = 60;
 
 function show(ctx, built, keyboard, options = {}) {
   return renderScreen(ctx, built.text, { entities: built.entities, reply_markup: keyboard }, options);
+}
+
+/*
+ * Все экраны раздела — одного типа. Telegram не умеет превращать текстовое сообщение в фото на месте:
+ * при смене типа сообщение удаляется и приходит новое (мигание). Поэтому, если в разделе есть хоть одно фото,
+ * списки тоже показываются как фото с обложкой, а переходы и листание — это правка одного сообщения.
+ */
+const CAPTION_LIMIT = 1024;
+
+function makerCover(makerId) {
+  return getMakerItems(makerId).find(i => i.photos.length > 0)?.photos[0] || null;
+}
+
+function showWithCover(ctx, r, keyboard, cover) {
+  if (cover) return show(ctx, r.build(CAPTION_LIMIT), keyboard, { photo: cover });
+  return show(ctx, r.build(4096), keyboard);
 }
 
 function writeButton(keyboard, maker) {
@@ -49,7 +65,7 @@ export async function showSection(ctx) {
   }
   kb.text('🧑‍🍳 Я мастер — разместить свои изделия', 'mkp:home').row();
   kb.text('◀️ В главное меню', 'menu:main');
-  return show(ctx, r.build(), kb);
+  return showWithCover(ctx, r, kb, getSectionCover());
 }
 
 makersComposer.callbackQuery('mk:home', async (ctx) => {
@@ -87,7 +103,7 @@ makersComposer.callbackQuery('mk:now', async (ctx) => {
   }
 
   kb.text('◀️ Назад', 'mk:home');
-  await show(ctx, r.build(), kb);
+  await showWithCover(ctx, r, kb, items.find(i => i.photos.length > 0)?.photos[0] || getSectionCover());
 });
 
 // ── Страница мастера ──────────────────────────────────────
@@ -140,7 +156,7 @@ export async function showMaker(ctx, makerId, { full = false } = {}) {
   writeButton(kb, maker);
   kb.text(subscribed ? '🔕 Отписаться от новостей' : '🔔 Сообщать о наличии', `mk:sub:${maker.id}:${full ? 'a' : 'm'}`).row();
   kb.text('◀️ Назад', full ? `mk:m:${maker.id}` : 'mk:home');
-  return show(ctx, r.build(), kb);
+  return showWithCover(ctx, r, kb, makerCover(maker.id) || getSectionCover());
 }
 
 // Порядок как в списках: по разделам, внутри раздела — как пришло (стабильная сортировка)
@@ -205,7 +221,7 @@ function backTarget(back, makerId) {
   return `mk:m:${makerId}`;
 }
 
-export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview = false } = {}) {
+export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview = false, fallbackPhoto = null } = {}) {
   const fresh = isStockFresh(maker);
   const photos = item.photos || [];
   const idx = photos.length ? ((photoIndex % photos.length) + photos.length) % photos.length : 0;
@@ -229,10 +245,12 @@ export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview
       .row();
   }
 
+  // У позиции без своих фото — обложка мастера, чтобы листание не пересоздавало сообщение.
+  // Но длинный текст в подпись (1024 символа) не влезет — тогда честно показываем текстом.
+  const photo = photos[idx] || (fallbackPhoto && r.text.length <= CAPTION_LIMIT ? fallbackPhoto : null);
   return {
-    // Лимит подписи к фото — 1024 символа, текстового сообщения — 4096
-    built: r.build(photos.length ? 1024 : 4096),
-    photo: photos[idx] || null,
+    built: r.build(photo ? CAPTION_LIMIT : 4096),
+    photo,
     keyboard: kb,
   };
 }
@@ -245,7 +263,9 @@ makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man])$/, async (ctx) => {
     return showSection(ctx);
   }
   const back = ctx.match[3];
-  const { built, photo, keyboard } = buildItemCard(item, maker, { photoIndex: Number(ctx.match[2]), back });
+  const { built, photo, keyboard } = buildItemCard(item, maker, {
+    photoIndex: Number(ctx.match[2]), back, fallbackPhoto: makerCover(maker.id) || getSectionCover(),
+  });
 
   // Листание позиций по кругу внутри текущего списка
   const list = browseList(back, maker);
