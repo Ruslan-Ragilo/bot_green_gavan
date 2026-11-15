@@ -120,7 +120,7 @@ export async function showMaker(ctx, makerId, { full = false } = {}) {
   if (full) {
     r.nl(2).bold('📋 Всё меню').nl()
       .italic(fresh ? '✅ — есть в наличии, остальное под заказ.' : 'Нажмите на позицию, чтобы посмотреть фото и состав.');
-    const sorted = [...items].sort((a, b) => categoryIndex(a) - categoryIndex(b) || a.id - b.id);
+    const sorted = sortByCategory(items);
     for (const item of sorted.slice(0, MAX_LIST_BUTTONS)) {
       kb.text(itemButtonLabel(item, { withStock: fresh }), `mk:i:${item.id}:0:${back}`).row();
     }
@@ -141,6 +141,20 @@ export async function showMaker(ctx, makerId, { full = false } = {}) {
   kb.text(subscribed ? '🔕 Отписаться от новостей' : '🔔 Сообщать о наличии', `mk:sub:${maker.id}:${full ? 'a' : 'm'}`).row();
   kb.text('◀️ Назад', full ? `mk:m:${maker.id}` : 'mk:home');
   return show(ctx, r.build(), kb);
+}
+
+// Порядок как в списках: по разделам, внутри раздела — как пришло (стабильная сортировка)
+function sortByCategory(items) {
+  return [...items].sort((a, b) => categoryIndex(a) - categoryIndex(b));
+}
+
+// Список, по которому листаются позиции, — тот, из которого покупатель открыл карточку
+function browseList(back, maker) {
+  if (back === 'n') return sortByCategory(getInStockItems(staleBoundaryUtc()));
+  const items = getMakerItems(maker.id);
+  if (back === 'a') return sortByCategory(items);
+  const inStock = isStockFresh(maker) ? items.filter(i => i.in_stock) : [];
+  return inStock.length > 0 ? inStock : items;
 }
 
 function categoryIndex(item) {
@@ -209,9 +223,9 @@ export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview
   if (photos.length > 1) {
     const base = preview ? `mkp:pv:${item.id}` : `mk:i:${item.id}`;
     const suffix = preview ? '' : `:${back}`;
-    kb.text('◀️', `${base}:${idx - 1 < 0 ? photos.length - 1 : idx - 1}${suffix}`)
+    kb.text('◀️ фото', `${base}:${idx - 1 < 0 ? photos.length - 1 : idx - 1}${suffix}`)
       .text(`${idx + 1} / ${photos.length}`, 'noop')
-      .text('▶️', `${base}:${(idx + 1) % photos.length}${suffix}`)
+      .text('фото ▶️', `${base}:${(idx + 1) % photos.length}${suffix}`)
       .row();
   }
 
@@ -232,8 +246,21 @@ makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man])$/, async (ctx) => {
   }
   const back = ctx.match[3];
   const { built, photo, keyboard } = buildItemCard(item, maker, { photoIndex: Number(ctx.match[2]), back });
+
+  // Листание позиций по кругу внутри текущего списка
+  const list = browseList(back, maker);
+  const pos = list.findIndex(i => i.id === item.id);
+  if (pos !== -1 && list.length > 1) {
+    const prev = list[(pos - 1 + list.length) % list.length];
+    const next = list[(pos + 1) % list.length];
+    keyboard
+      .text('⬅️ Пред.', `mk:i:${prev.id}:0:${back}`)
+      .text(`${pos + 1} из ${list.length}`, 'noop')
+      .text('След. ➡️', `mk:i:${next.id}:0:${back}`)
+      .row();
+  }
   writeButton(keyboard, maker);
   if (back !== 'm') keyboard.text(`👩‍🍳 Все позиции мастера`, `mk:m:${maker.id}`).row();
-  keyboard.text('◀️ Назад', backTarget(back, maker.id));
+  keyboard.text('◀️ К списку', backTarget(back, maker.id));
   await show(ctx, built, keyboard, photo ? { photo } : {});
 });
