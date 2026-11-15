@@ -11,7 +11,7 @@ import {
   getMaker, getMakerByUser, createMaker, resubmitMaker, updateMakerProfile, setMakerStatus, setMakerOwner,
   getAllMakers, getMakerItems, getMakerItem, createMakerItem, replaceMakerItemPost, updateMakerItemField,
   toggleMakerItemStock, deleteMakerItem, touchMakerStock, markMakerNotified,
-  getSubscriberIds, countSubscribers, unsubscribe, findUserIdByUsername,
+  getSubscriberIds, countSubscribers, unsubscribe, findUserIdByUsername, deleteMaker,
 } from '../db/repositories/makers.js';
 import {
   MAKER_CATEGORIES, CATEGORY_BY_ID, parseMakerPost, formatWhen, isStockFresh, notifyCooldownLeftMinutes,
@@ -565,7 +565,9 @@ makerPanelComposer.callbackQuery(/^mka:(ok|no):(\d+)$/, async (ctx) => {
   await syncMakerCommands(ctx.api, maker.user_id, approve);
   await ctx.answerCallbackQuery({ text: approve ? 'Одобрено' : 'Отклонено' });
   await ctx.editMessageReplyMarkup({
-    reply_markup: new InlineKeyboard().text(approve ? '✅ Одобрено' : '❌ Отклонено', 'noop'),
+    reply_markup: new InlineKeyboard()
+      .text(approve ? '✅ Одобрено' : '❌ Отклонено', 'noop')
+      .text('⚙️ Управление', `mka:m:${maker.id}`),
   }).catch(() => {});
 
   try {
@@ -578,27 +580,66 @@ makerPanelComposer.callbackQuery(/^mka:(ok|no):(\d+)$/, async (ctx) => {
   }
 });
 
-const STATUS_LABELS = { pending: '⏳', active: '✅', hidden: '🙈', rejected: '❌' };
+const STATUS_LABELS = { pending: '⏳ на рассмотрении', active: '✅ активен', hidden: '🙈 скрыт', rejected: '❌ отклонён' };
 
 function makersAdminView() {
   const makers = getAllMakers();
   const r = rich().bold('🧺 Мастера').nl(2);
   const kb = new InlineKeyboard();
-  if (makers.length === 0) r.plain('Пока никого.');
+  if (makers.length === 0) r.plain('Пока никого.').nl();
   for (const m of makers) {
-    r.plain(`${STATUS_LABELS[m.status]} #${m.id} ${m.name} — ${m.items_count} поз., id ${m.user_id}`).nl();
-    if (m.status === 'active' || m.status === 'hidden') {
-      kb.text(`${m.status === 'active' ? '🙈 Скрыть' : '👁 Показать'} #${m.id}`, `mka:tog:${m.id}`).row();
-    }
+    const icon = STATUS_LABELS[m.status].split(' ')[0];
+    kb.text(`${icon} #${m.id} ${m.name} · ${m.items_count} поз.`, `mka:m:${m.id}`).row();
   }
-  r.nl().italic('Передать карточку мастеру: /maker_owner <номер> @username (мастер должен хотя бы раз нажать /start).');
+  if (makers.length > 0) r.plain('Выберите мастера, чтобы скрыть, одобрить или удалить.').nl();
+  r.nl().italic('Передать карточку: /maker_owner <номер> @username (мастер должен хотя бы раз нажать /start).');
+  kb.text('◀️ В админ-панель', 'admin:main');
   return { built: r.build(), kb };
+}
+
+function makerAdminCard(maker) {
+  const subs = countSubscribers(maker.id);
+  const items = getMakerItems(maker.id).length;
+  const r = rich().bold(`#${maker.id} ${maker.name}`).nl(2)
+    .plain(`Статус: ${STATUS_LABELS[maker.status]}`).nl()
+    .plain(`Владелец: id ${maker.user_id}${maker.contact ? `, ${maker.contact}` : ''}`).nl()
+    .plain(`Позиций: ${items}, подписчиков: ${subs}`).nl()
+    .plain(`Наличие: ${maker.stock_updated_at ? formatWhen(maker.stock_updated_at) : 'не отмечалось'}`);
+  const kb = new InlineKeyboard();
+  if (maker.status === 'pending' || maker.status === 'rejected') kb.text('✅ Одобрить', `mka:ok:${maker.id}`);
+  if (maker.status === 'pending') kb.text('❌ Отклонить', `mka:no:${maker.id}`);
+  if (maker.status === 'active') kb.text('🙈 Скрыть', `mka:tog:${maker.id}`);
+  if (maker.status === 'hidden') kb.text('👁 Показать', `mka:tog:${maker.id}`);
+  kb.row().text('👀 Карточка', `mk:m:${maker.id}`).text('🗑 Удалить', `mka:del:${maker.id}`).row()
+    .text('◀️ К списку', 'mka:list');
+  return { built: r.build(), kb };
+}
+
+async function editView(ctx, { built, kb }) {
+  await ctx.editMessageText(built.text, { entities: built.entities, reply_markup: kb }).catch(async (err) => {
+    if (!String(err.description || err.message).includes('not modified')) {
+      await ctx.reply(built.text, { entities: built.entities, reply_markup: kb });
+    }
+  });
 }
 
 makerPanelComposer.command('makers', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
   const { built, kb } = makersAdminView();
   await ctx.reply(built.text, { entities: built.entities, reply_markup: kb });
+});
+
+makerPanelComposer.callbackQuery('mka:list', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  if (!isAdmin(ctx.from.id)) return;
+  await editView(ctx, makersAdminView());
+});
+
+makerPanelComposer.callbackQuery(/^mka:m:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  if (!isAdmin(ctx.from.id)) return;
+  const maker = getMaker(Number(ctx.match[1]));
+  await editView(ctx, maker ? makerAdminCard(maker) : makersAdminView());
 });
 
 makerPanelComposer.callbackQuery(/^mka:tog:(\d+)$/, async (ctx) => {
@@ -610,8 +651,36 @@ makerPanelComposer.callbackQuery(/^mka:tog:(\d+)$/, async (ctx) => {
     await syncMakerCommands(ctx.api, maker.user_id, nowActive);
   }
   await ctx.answerCallbackQuery();
-  const { built, kb } = makersAdminView();
-  await ctx.editMessageText(built.text, { entities: built.entities, reply_markup: kb }).catch(() => {});
+  const fresh = maker && getMaker(maker.id);
+  await editView(ctx, fresh ? makerAdminCard(fresh) : makersAdminView());
+});
+
+makerPanelComposer.callbackQuery(/^mka:del:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  if (!isAdmin(ctx.from.id)) return;
+  const maker = getMaker(Number(ctx.match[1]));
+  if (!maker) return editView(ctx, makersAdminView());
+  const items = getMakerItems(maker.id).length;
+  const subs = countSubscribers(maker.id);
+  const built = rich().bold(`🗑 Удалить мастера «${maker.name}»?`).nl(2)
+    .plain(`Вместе с ним удалятся все позиции (${items}) и подписки (${subs}).`).nl()
+    .bold('Отменить это нельзя.').build();
+  await editView(ctx, {
+    built,
+    kb: new InlineKeyboard().text('🗑 Да, удалить', `mka:delok:${maker.id}`).text('Отмена', `mka:m:${maker.id}`),
+  });
+});
+
+makerPanelComposer.callbackQuery(/^mka:delok:(\d+)$/, async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCallbackQuery();
+  const maker = getMaker(Number(ctx.match[1]));
+  if (maker) {
+    deleteMaker(maker.id);
+    await syncMakerCommands(ctx.api, maker.user_id, false);
+    console.log(`[Makers] Администратор ${ctx.from.id} удалил мастера #${maker.id} «${maker.name}»`);
+  }
+  await ctx.answerCallbackQuery({ text: maker ? `🗑 «${maker.name}» удалён` : 'Уже удалён' });
+  await editView(ctx, makersAdminView());
 });
 
 // Админ заполняет карточку сам (например, для показа мастеру), затем передаёт её владельцу

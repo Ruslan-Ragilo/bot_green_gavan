@@ -90,6 +90,13 @@ export function resubmitMaker(id, { name, about, aboutEntities, contact }) {
   return getMaker(id);
 }
 
+// Позиции и подписки удаляются каскадом (ON DELETE CASCADE); на всякий случай чистим их явно
+export const deleteMaker = db.transaction((id) => {
+  db.prepare('DELETE FROM maker_items WHERE maker_id = ?').run(id);
+  db.prepare('DELETE FROM maker_subscriptions WHERE maker_id = ?').run(id);
+  db.prepare('DELETE FROM makers WHERE id = ?').run(id);
+});
+
 export function setMakerOwner(id, userId) {
   db.prepare('UPDATE makers SET user_id = ? WHERE id = ?').run(userId, id);
 }

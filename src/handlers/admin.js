@@ -27,6 +27,7 @@ function adminMenuKeyboard() {
     .text('📊 Статистика и аналитика', 'admin:stats').row()
     .text('⏸ Приём заказов (Пауза/Пуск)', 'admin:places_pause').row()
     .text('🚫 Стоп-лист меню', 'admin:stop_list').row()
+    .text('🧺 Мастера', 'mka:list').row()
     .text('🚌 Обновить расписание транспорта', 'admin:update_transport').row()
     .text('📢 Рассылка жильцам ЖК', 'admin:broadcast_prompt').row()
     .text('🔍 Найти заказ по номеру', 'admin:find_prompt');
