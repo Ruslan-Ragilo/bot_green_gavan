@@ -5,7 +5,7 @@
  */
 import { Composer, InlineKeyboard } from 'grammy';
 import {
-  getActiveMakers, getMaker, getMakerItems, getMakerItem, getInStockItems, getSectionCover, getMakerCover,
+  getActiveMakers, getMaker, getMakerItems, getMakerItem, getInStockItems, getSectionCover,
   isSubscribed, subscribe, unsubscribe,
 } from '../db/repositories/makers.js';
 import {
@@ -24,10 +24,9 @@ function show(ctx, built, keyboard, options = {}) {
 }
 
 /*
- * Telegram не умеет превращать текстовое сообщение в фото на месте: при смене типа сообщение удаляется
- * и приходит новое (мигание). Поэтому экраны показываются с обложкой: раздел и «Что есть сейчас» —
- * с обложкой раздела (задаёт админ), страница мастера и его позиции без фото — с фото первой позиции мастера.
- * Чужие фото не подставляются: нет обложки — экран текстовый.
+ * Фото показываются только у позиций (их собственные). Раздел и «Что есть сейчас» могут быть с обложкой,
+ * которую задаёт админ; страница мастера — текстом. Листание позиций с фото правит одно сообщение,
+ * переход между списком (текст) и позицией (фото) Telegram делает заменой сообщения.
  */
 const CAPTION_LIMIT = 1024;
 
@@ -154,7 +153,7 @@ export async function showMaker(ctx, makerId, { full = false } = {}) {
   writeButton(kb, maker);
   kb.text(subscribed ? '🔕 Отписаться от мастера' : '🔔 Подписаться на мастера', `mk:sub:${maker.id}:${full ? 'a' : 'm'}`).row();
   kb.text('◀️ Назад', full ? `mk:m:${maker.id}` : 'mk:home');
-  return showWithCover(ctx, r, kb, getMakerCover(maker.id));
+  return show(ctx, r.build(4096), kb);
 }
 
 // Порядок как в списках: по разделам, внутри раздела — как пришло (стабильная сортировка)
@@ -222,7 +221,7 @@ function backTarget(back, makerId) {
   return `mk:m:${makerId}`;
 }
 
-export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview = false, fallbackPhoto = null } = {}) {
+export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview = false } = {}) {
   const fresh = isStockFresh(maker);
   const photos = item.photos || [];
   const idx = photos.length ? ((photoIndex % photos.length) + photos.length) % photos.length : 0;
@@ -257,9 +256,8 @@ export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview
       .row();
   }
 
-  // У позиции без своих фото — обложка мастера, чтобы листание не пересоздавало сообщение.
-  // Но длинный текст в подпись (1024 символа) не влезет — тогда честно показываем текстом.
-  const photo = photos[idx] || (fallbackPhoto && r.text.length <= CAPTION_LIMIT ? fallbackPhoto : null);
+  // Только собственные фото позиции; без фото — обычная текстовая карточка
+  const photo = photos[idx] || null;
   return {
     built: r.build(photo ? CAPTION_LIMIT : 4096),
     photo,
@@ -276,7 +274,7 @@ makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man])$/, async (ctx) => {
   }
   const back = ctx.match[3];
   const { built, photo, keyboard } = buildItemCard(item, maker, {
-    photoIndex: Number(ctx.match[2]), back, fallbackPhoto: getMakerCover(maker.id),
+    photoIndex: Number(ctx.match[2]), back,
   });
 
   // Листание позиций по кругу внутри текущего списка

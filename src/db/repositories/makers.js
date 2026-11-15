@@ -148,12 +148,6 @@ export function setSectionCover(fileId) {
   }
 }
 
-// Фото для страницы мастера и его позиций без фото — первое фото его позиций (никогда не чужое)
-export function getMakerCover(makerId) {
-  const row = db.prepare(`SELECT photos FROM maker_items WHERE maker_id = ? AND photos <> '[]' ORDER BY id LIMIT 1`).get(makerId);
-  return row ? parseJson(row.photos, [])[0] || null : null;
-}
-
 const variantsJson = (variants) => (variants && variants.length
   ? JSON.stringify(variants.map(v => ({ name: v.name, price: v.price || null, in_stock: v.in_stock ? 1 : 0 })))
   : null);

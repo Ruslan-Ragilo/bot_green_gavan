@@ -12,7 +12,7 @@ import {
   getAllMakers, getMakerItems, getMakerItem, createMakerItem, replaceMakerItemPost, updateMakerItemField,
   toggleMakerItemStock, deleteMakerItem, touchMakerStock, markMakerNotified,
   getSubscriberIds, countSubscribers, unsubscribe, findUserIdByUsername, deleteMaker,
-  getSectionCover, setSectionCover, getMakerCover, setVariantStock, clearVariants,
+  getSectionCover, setSectionCover, setVariantStock, clearVariants,
 } from '../db/repositories/makers.js';
 import {
   MAKER_CATEGORIES, CATEGORY_BY_ID, parseMakerPost, formatWhen, isStockFresh, notifyCooldownLeftMinutes,
@@ -296,7 +296,7 @@ function buildNotification(maker, items, highlightIds) {
   }
   kb.text('👩‍🍳 Всё наличие', `mk:m:${maker.id}`).text('🔕 Отписаться', `mk:unsub:${maker.id}`);
 
-  const photo = highlighted.find(i => i.photos.length)?.photos[0] || getMakerCover(maker.id);
+  const photo = highlighted.find(i => i.photos.length)?.photos[0] || inStock.find(i => i.photos.length)?.photos[0] || null;
   return { built: r.build(photo ? 1024 : 4096), photo, kb };
 }
 
