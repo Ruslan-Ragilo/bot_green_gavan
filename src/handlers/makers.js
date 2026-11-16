@@ -236,9 +236,15 @@ export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview
     // Варианты в одном посте: что есть сейчас, остальное — под заказ
     const yes = item.variants.filter(v => v.in_stock).map(v => variantNameInline(v.name));
     const no = item.variants.filter(v => !v.in_stock).map(v => variantNameInline(v.name));
-    if (yes.length) r.plain('✅ Сейчас есть: ').bold(yes.join(', '));
-    if (yes.length && no.length) r.nl();
-    if (no.length) r.plain(`📝 Под заказ: ${no.join(', ')}`);
+    if (yes.length === item.variants.length) {
+      r.plain('✅ Все варианты в наличии');
+    } else if (yes.length === 0) {
+      r.plain('📝 Все варианты под заказ');
+    } else {
+      if (yes.length) r.plain('✅ Сейчас есть: ').bold(yes.join(', '));
+      if (yes.length && no.length) r.nl();
+      if (no.length) r.plain(`📝 Под заказ: ${no.join(', ')}`);
+    }
   } else if (item.in_stock) {
     r.plain('✅ Есть в наличии');
   } else {

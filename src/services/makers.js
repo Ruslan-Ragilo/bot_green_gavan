@@ -7,7 +7,7 @@ import { cleanEntities } from '../utils/richText.js';
 // Разделы для сводки «Что есть сейчас». Порядок — порядок показа.
 export const MAKER_CATEGORIES = [
   { id: 'meals', title: '🍲 Готовая еда' },
-  { id: 'blini', title: '🥞 Блины и сырники' },
+  { id: 'blini', title: '🥟 Полуфабрикаты' },
   { id: 'bake', title: '🥐 Выпечка' },
   { id: 'dessert', title: '🍰 Торты и десерты' },
   { id: 'drinks', title: '🍵 Напитки' },
