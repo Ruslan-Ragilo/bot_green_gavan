@@ -3,12 +3,12 @@ import process from 'node:process';
 import { webhookCallback } from 'grammy';
 import { config, validateConfig } from './config.js';
 import { createBot, setupBotCommands } from './src/bot.js';
-import { startExpiredOrdersJob, stopExpiredOrdersJob } from './src/jobs/expiredOrders.js';
 import { startTransportUpdaterJob, stopTransportUpdaterJob } from './src/jobs/transportUpdater.js';
 import { startKitchenJobs, stopKitchenJobs } from './src/jobs/kitchenJobs.js';
+import { startExpiredOrdersJob, stopExpiredOrdersJob } from './src/jobs/expiredOrders.js';
 
 async function main() {
-  console.log('🚀 Инициализация Telegram-бота предзаказа для ЖК «Зелёная Гавань»...');
+  console.log('🚀 Инициализация Telegram-бота для ЖК «Зелёная Гавань» (Транспорт и Мастера)...');
 
   // Проверяем обязательные переменные окружения
   validateConfig();
@@ -16,11 +16,11 @@ async function main() {
   // Создаем экземпляр бота с подключенными хэндлерами
   const bot = createBot();
 
-  // Запускаем фоновую проверку просроченных заказов (setInterval раз в минуту)
-  startExpiredOrdersJob(bot);
-
-  // Напоминания кухне/жильцам и ежедневные отчёты заведениям (раз в минуту)
-  startKitchenJobs(bot);
+  // Предзаказы в кафе: автоотмена просроченных заказов, напоминания кухне и отчёты (выключено флагом)
+  if (config.preordersEnabled) {
+    startExpiredOrdersJob(bot);
+    startKitchenJobs(bot);
+  }
 
   // Запускаем ночной крон актуализации расписания транспорта (раз в сутки в 04:00)
   startTransportUpdaterJob(bot);

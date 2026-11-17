@@ -107,7 +107,7 @@ export async function showPanel(ctx) {
     kb.text('👍 Наличие актуально', 'mkp:fresh').text('📣 Сообщить подписчикам', 'mkp:notify').row();
   }
 
-  kb.text('➕ Добавить позицию', 'mkp:add').row();
+  kb.text('➕ Добавить позицию', 'mkp:add').text('📖 Как оформить', 'mkp:guide:h').row();
   if (items.length > 0) kb.text('✏️ Изменить позиции', 'mkp:items').row();
   kb.text('👤 Описание и контакт', 'mkp:profile').text('👀 Как видят', `mk:m:${maker.id}`).row();
   kb.text('◀️ Назад', 'mk:home');
@@ -431,6 +431,44 @@ makerPanelComposer.callbackQuery('mkp:notify_go', async (ctx) => {
     .catch((err) => console.error('[Makers] Ошибка рассылки:', err));
 });
 
+// ── Гайд «Как оформить пост» ──────────────────────────────
+
+const pre = (r, text) => r.add(text, 'pre');
+
+function buildGuide() {
+  const r = rich().bold('📖 Как добавить позицию').nl(2);
+  r.bold('1. Пришлите пост').nl()
+    .plain('Нажмите «➕ Добавить позицию» и пришлите фото (можно до 10) с описанием в подписи. Подойдёт и старый пост из группы — просто перешлите его.').nl(2);
+  r.bold('2. Как оформить подпись').nl();
+  pre(r, 'Сырники с маком\n1 шт - 65 гр\nСостав: творог, желток, мак, мука.\n0,5кг - 14р');
+  r.nl()
+    .plain('• ').bold('Первая строка — название').plain(': коротко, 3–5 слов, оно будет на кнопке.').nl()
+    .plain('• ').bold('Цена').plain(': сначала фасовка, потом цена с «р» — «0,5кг - 14р», «4шт - 15р», «1 кубик - 5р».').nl()
+    .plain('• Вес и состав — как удобно. Жирный и курсив из Telegram сохранятся.').nl(2);
+  r.bold('3. Несколько видов в одном посте').nl()
+    .plain('Начинки, вкусы, цвета — начните каждый вид с ▪️ и укажите цену под ним:').nl();
+  pre(r, 'Блины\n▪️С печенью\n0,5кг - 15р\n▪️С лисичками\n0,5кг - 16р');
+  r.nl().plain('Наличие можно будет отмечать по каждому виду. Обычные строки не начинайте с ▪️, • или «-».').nl(2);
+  r.bold('4. Выберите раздел').plain(' — и позиция готова.').nl(2);
+  r.bold('5. Отмечайте наличие').nl()
+    .plain('В кабинете нажатие на позицию переключает ✅ есть / ❌ под заказ. Ничего не поменялось — «👍 Наличие актуально». Через 3 дня без обновления покупатели увидят «уточняйте у мастера».').nl(2);
+  r.bold('6. Сообщите подписчикам').nl()
+    .plain('«📣 Сообщить подписчикам» → отметьте, что появилось → «Отправить». Не чаще раза в 4 часа.').nl(2);
+  r.bold('Если бот понял неправильно').nl()
+    .plain('«✏️ Изменить позиции» → поправьте название или цену, или «🔁 Заменить пост». «👀 Как видят» — посмотреть глазами покупателя.').nl(2);
+  r.italic('Подпись к фото — до 1024 символов (≈10–12 строк). Не помещается — разделите на два поста.');
+  return r.build();
+}
+
+// back: h — в кабинет, a — к добавлению позиции
+makerPanelComposer.callbackQuery(/^mkp:guide:([ha])$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const kb = new InlineKeyboard();
+  if (ctx.match[1] === 'a') kb.text('➕ Прислать пост', 'mkp:add').row();
+  kb.text('◀️ В кабинет', 'mkp:home');
+  await show(ctx, buildGuide(), kb);
+});
+
 // ── Добавление и замена поста ─────────────────────────────
 
 function askPost(ctx, { replaceItemId = null, error = null } = {}) {
@@ -443,7 +481,9 @@ function askPost(ctx, { replaceItemId = null, error = null } = {}) {
     .plain('• в подписи — описание: первая строка станет названием, строка вида «0,5кг - 14р» — ценой.').nl(2)
     .italic('Жирный и курсив из Telegram сохранятся. Можно просто переслать свой старый пост из группы.');
   const back = replaceItemId ? `mkp:it:${replaceItemId}` : 'mkp:home';
-  return show(ctx, r.build(), new InlineKeyboard().text('✖️ Отмена', back));
+  return show(ctx, r.build(), new InlineKeyboard()
+    .text('📖 Как оформить пост', 'mkp:guide:a').row()
+    .text('✖️ Отмена', back));
 }
 
 makerPanelComposer.callbackQuery('mkp:add', async (ctx) => {
@@ -748,7 +788,11 @@ makerPanelComposer.callbackQuery(/^mka:(ok|no):(\d+)$/, async (ctx) => {
     await ctx.api.sendMessage(maker.user_id, approve
       ? `🎉 Заявка «${maker.name}» одобрена! Добавьте позиции и отметьте наличие в кабинете мастера — он всегда открывается командой /master (кнопка «Меню» возле поля ввода).`
       : `К сожалению, заявка «${maker.name}» не одобрена. Если есть вопросы — напишите автору бота.`,
-    approve ? { reply_markup: new InlineKeyboard().text('🧑‍🍳 Открыть кабинет', 'mkp:home') } : {});
+    approve ? {
+      reply_markup: new InlineKeyboard()
+        .text('📖 Как добавить позиции', 'mkp:guide:h').row()
+        .text('🧑‍🍳 Открыть кабинет', 'mkp:home'),
+    } : {});
   } catch (err) {
     console.error('[Makers] Не удалось уведомить мастера:', err.message);
   }

@@ -79,17 +79,28 @@ export function createBot() {
 
   // Подключаем модули обработчиков
   bot.use(adminComposer);
-  bot.use(setupComposer);
+  if (config.preordersEnabled) bot.use(setupComposer);
   bot.use(startComposer);
   bot.use(transportComposer);
   bot.use(supportComposer);
   bot.use(makersComposer);
   bot.use(makerPanelComposer);
-  bot.use(catalogComposer);
-  bot.use(cartComposer);
-  bot.use(ordersComposer);
-  bot.use(staffComposer);
-  bot.use(kitchenComposer);
+
+  // Предзаказы в кафе: подключаются только при FEATURE_PREORDERS=true
+  if (config.preordersEnabled) {
+    bot.use(catalogComposer);
+    bot.use(cartComposer);
+    bot.use(ordersComposer);
+    bot.use(staffComposer);
+    bot.use(kitchenComposer);
+  }
+
+  // Кнопки, которые никто не обработал (например, на старых сообщениях выключенных предзаказов),
+  // иначе у пользователя бесконечно крутятся часики на кнопке
+  bot.on('callback_query:data', async (ctx, next) => {
+    await ctx.answerCallbackQuery({ text: 'Эта функция сейчас недоступна' }).catch(() => {});
+    return next();
+  });
 
   // Пересылка входящих текстовых сообщений и ответов жильцов администратору
   bot.on('message:text', async (ctx) => {
@@ -143,28 +154,32 @@ export function createBot() {
 }
 
 // Регистрация быстрых команд в кнопке «Меню» Telegram (возле поля ввода)
+const GROUP_COMMANDS = [
+  { command: 'panel', description: '🎛 Пульт кухни: пауза, стоп-лист, лимит' },
+  { command: 'report', description: '📊 Отчёт за сегодня' },
+  { command: 'hours', description: '🕘 Часы работы (/hours 9:00-22:00)' },
+  { command: 'setup_place', description: '⚙️ Настройка заведения' },
+  { command: 'menu_items', description: '📋 Меню заведения' },
+  { command: 'add_item', description: '🍕 Добавить блюдо в меню' },
+  { command: 'del_item', description: '🗑 Удалить блюдо из меню' },
+  { command: 'iam_staff', description: '👨‍🍳 Доступ к заказам (я сотрудник)' },
+  { command: 'staff_list', description: '👥 Список персонала' },
+  { command: 'edit_place', description: '✏️ Изменить адрес/название' },
+];
+
 export async function setupBotCommands(bot) {
   try {
-    // 1. Команды для обычных пользователей в личных сообщениях (транспорт)
+    // 1. Команды для обычных пользователей в личных сообщениях
     await bot.api.setMyCommands(USER_COMMANDS, {
       scope: { type: 'all_private_chats' },
     });
 
-    // 2. Команды для групп (кухня, заведения)
-    await bot.api.setMyCommands([
-      { command: 'panel', description: '🎛 Пульт кухни: пауза, стоп-лист, лимит' },
-      { command: 'report', description: '📊 Отчёт за сегодня' },
-      { command: 'hours', description: '🕘 Часы работы (/hours 9:00-22:00)' },
-      { command: 'setup_place', description: '⚙️ Настройка заведения' },
-      { command: 'menu_items', description: '📋 Меню заведения' },
-      { command: 'add_item', description: '🍕 Добавить блюдо в меню' },
-      { command: 'del_item', description: '🗑 Удалить блюдо из меню' },
-      { command: 'iam_staff', description: '👨‍🍳 Доступ к заказам (я сотрудник)' },
-      { command: 'staff_list', description: '👥 Список персонала' },
-      { command: 'edit_place', description: '✏️ Изменить адрес/название' },
-    ], {
-      scope: { type: 'all_group_chats' },
-    });
+    // 2. Команды для групп (кухня, заведения) — только когда включены предзаказы
+    if (config.preordersEnabled) {
+      await bot.api.setMyCommands(GROUP_COMMANDS, { scope: { type: 'all_group_chats' } });
+    } else {
+      await bot.api.deleteMyCommands({ scope: { type: 'all_group_chats' } });
+    }
 
     // 3. Персональное меню в инпуте для администратора бота
     for (const adminId of config.adminIds) {

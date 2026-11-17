@@ -25,10 +25,12 @@ db.exec(SCHEMA_SQL);
 runMigrations(db);
 db.exec(SCHEMA_SQL);
 
-// Инициализируем стартовые данные для пилота (Varka)
-import('./seedData.js').then(({ ensureSeedData }) => {
-  ensureSeedData(db);
-}).catch((err) => {
-  console.error('[DB] Ошибка авто-инициализации сида:', err);
-});
+// Стартовые заведения для предзаказов — только если предзаказы включены
+if (config.preordersEnabled) {
+  import('./seedData.js').then(({ ensureSeedData }) => {
+    ensureSeedData(db);
+  }).catch((err) => {
+    console.error('[DB] Ошибка авто-инициализации сида:', err);
+  });
+}
 

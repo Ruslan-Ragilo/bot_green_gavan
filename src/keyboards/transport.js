@@ -1,4 +1,5 @@
 import { InlineKeyboard } from 'grammy';
+import { config } from '../../config.js';
 import { getDirectionStops, DIRECTION_TITLES } from '../services/transportService.js';
 
 // Короткие коды направлений в callback_data (лимит Telegram — 64 байта)
@@ -14,20 +15,22 @@ export function transportMenuKeyboard(cartTotalQuantity = 0) {
   // 1. Общественный транспорт (главный приоритет)
   keyboard.text('🚌 Общественный транспорт', 'transport:menu').row();
 
-  // 2. Локальные сервисы и предзаказ (в один аккуратный ряд)
-  keyboard
-    .text('🍕 Пицца', 'catalog:place:kava_la_pechi')
-    .text('☕️ Varka (Кофе)', 'catalog:place:varka')
-    .row();
+  // 2. Предзаказ в кафе — только если включён (FEATURE_PREORDERS=true)
+  if (config.preordersEnabled) {
+    keyboard
+      .text('🍕 Пицца', 'catalog:place:kava_la_pechi')
+      .text('☕️ Varka (Кофе)', 'catalog:place:varka')
+      .row();
+  }
 
-  // Домашняя еда и изделия ручной работы от местных мастеров
+  // 3. Домашняя еда и изделия ручной работы от местных мастеров
   keyboard.text('🧺 Домашнее и ручное', 'mk:home').row();
 
-  if (cartTotalQuantity > 0) {
+  if (config.preordersEnabled && cartTotalQuantity > 0) {
     keyboard.text(`🛒 Оформить заказ (${cartTotalQuantity} шт.)`, 'cart:view').row();
   }
 
-  // 3. Поддержка и обратная связь
+  // 4. Поддержка и обратная связь
   keyboard.text('❤️ Поддержка проекта / Связь', 'support:menu');
 
   return keyboard;

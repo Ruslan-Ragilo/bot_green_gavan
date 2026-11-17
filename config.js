@@ -23,6 +23,10 @@ export const config = {
   // Путь к файлу базы данных SQLite
   dbPath: process.env.DATABASE_PATH || './data/bot.db',
 
+  // Предзаказы в кафе (каталог, корзина, заказы, пульт кухни). Выключены: в боте только транспорт и мастера.
+  // Код сохранён — включить можно переменной FEATURE_PREORDERS=true в .env.
+  preordersEnabled: process.env.FEATURE_PREORDERS === 'true',
+
   // Таймаут в минутах, после которого неподтверждённый заказ (статус sent) переходит в expired
   orderExpiryMinutes: Number(process.env.ORDER_EXPIRY_MINUTES) || 15,
 

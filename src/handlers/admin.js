@@ -1,5 +1,6 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { isAdmin } from '../../config.js';
+import { config, isAdmin } from '../../config.js';
+import { getAllMakers } from '../db/repositories/makers.js';
 import {
   getAllPlaces,
   getActivePlaces,
@@ -23,14 +24,24 @@ const broadcastDrafts = new Map();
 
 // Главная клавиатура панели администратора
 function adminMenuKeyboard() {
-  return new InlineKeyboard()
-    .text('📊 Статистика и аналитика', 'admin:stats').row()
-    .text('⏸ Приём заказов (Пауза/Пуск)', 'admin:places_pause').row()
-    .text('🚫 Стоп-лист меню', 'admin:stop_list').row()
-    .text('🧺 Мастера', 'mka:list').row()
+  const kb = new InlineKeyboard().text('📊 Статистика и аналитика', 'admin:stats').row();
+  if (config.preordersEnabled) {
+    kb.text('⏸ Приём заказов (Пауза/Пуск)', 'admin:places_pause').row()
+      .text('🚫 Стоп-лист меню', 'admin:stop_list').row();
+  }
+  kb.text('🧺 Мастера', 'mka:list').row()
     .text('🚌 Обновить расписание транспорта', 'admin:update_transport').row()
-    .text('📢 Рассылка жильцам ЖК', 'admin:broadcast_prompt').row()
-    .text('🔍 Найти заказ по номеру', 'admin:find_prompt');
+    .text('📢 Рассылка жильцам ЖК', 'admin:broadcast_prompt');
+  if (config.preordersEnabled) kb.row().text('🔍 Найти заказ по номеру', 'admin:find_prompt');
+  return kb;
+}
+
+function makersSummary() {
+  const makers = getAllMakers();
+  const active = makers.filter(m => m.status === 'active').length;
+  const pending = makers.filter(m => m.status === 'pending').length;
+  const items = makers.reduce((sum, m) => sum + (m.items_count || 0), 0);
+  return `активных ${active}, на рассмотрении ${pending}, позиций ${items}`;
 }
 
 // 1. Главная команда /admin — доступна ТОЛЬКО администраторам
@@ -48,7 +59,7 @@ adminComposer.command('admin', async (ctx) => {
     `👤 *Администратор:* ${ctx.from.first_name} (ID: \`${ctx.from.id}\`)\n` +
     `👥 *Жильцов в базе:* ${userStats.total} чел. (активных за 24ч: *${userStats.active24h}*)\n` +
     `📌 *Закреплено расписаний:* ${userStats.totalPins} шт.\n` +
-    `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n\n` +
+    (config.preordersEnabled ? `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n` : '') + '\n' +
     `Выберите раздел управления:`
   );
 
@@ -71,7 +82,7 @@ adminComposer.callbackQuery('admin:main', async (ctx) => {
     `👤 *Администратор:* ${ctx.from.first_name} (ID: \`${ctx.from.id}\`)\n` +
     `👥 *Жильцов в базе:* ${userStats.total} чел. (активных за 24ч: *${userStats.active24h}*)\n` +
     `📌 *Закреплено расписаний:* ${userStats.totalPins} шт.\n` +
-    `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n\n` +
+    (config.preordersEnabled ? `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n` : '') + '\n' +
     `Выберите раздел управления:`
   );
 
@@ -121,6 +132,7 @@ adminComposer.callbackQuery('admin:stats', async (ctx) => {
     `• Активных за последние 24ч: *${userStats.active24h}*\n\n` +
     `📌 *Закреплённые расписания в чатах:*\n` +
     `• Всего закреплено: *${userStats.totalPins}*${pinsBreakdown}\n\n` +
+    (config.preordersEnabled ? (
     `☕️ *Сервис предзаказов:*\n` +
     `• Сегодня: заказов — *${orderStats.today.total_count}*, сумма — *${orderStats.today.total_revenue} BYN*\n` +
     `  _(выдано: ${orderStats.today.issued_count}, отменено: ${orderStats.today.cancelled_count})_\n` +
@@ -130,6 +142,7 @@ adminComposer.callbackQuery('admin:stats', async (ctx) => {
     `• Ожидают принятия кухней: *${orderStats.active.sent_count || 0}*\n` +
     `• Готовятся: *${orderStats.active.accepted_count || 0}*\n` +
     `• Готовы к выдаче жильцу: *${orderStats.active.ready_count || 0}*`
+    ) : `🧺 *Мастера:* ${makersSummary()}`)
   );
 
   const keyboard = new InlineKeyboard()
