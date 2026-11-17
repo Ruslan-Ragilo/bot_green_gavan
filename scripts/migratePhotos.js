@@ -22,7 +22,7 @@ async function migrate() {
   const prodBot = new Bot(PROD_TOKEN);
   const db = new Database(DB_PATH);
 
-  const items = db.prepare('SELECT id, title, photos FROM maker_items WHERE photos != "[]" AND photos IS NOT NULL').all();
+  const items = db.prepare("SELECT id, title, photos FROM maker_items WHERE photos != '[]' AND photos IS NOT NULL").all();
   console.log(`📦 Найдено позиций с фото: ${items.length}\n`);
 
   for (const item of items) {
