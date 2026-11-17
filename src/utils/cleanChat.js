@@ -141,9 +141,17 @@ async function executeRenderScreen(ctx, text, extra, seq, userId, chatId, option
   if (isStale()) return;
 
   // 4. Отправляем ровно одно свежее сообщение и сохраняем его ID в базу данных
-  const sent = options.photo
-    ? await ctx.replyWithPhoto(options.photo, photoExtra(text, extra))
-    : await ctx.reply(text, extra);
+  let sent;
+  if (options.photo) {
+    try {
+      sent = await ctx.replyWithPhoto(options.photo, photoExtra(text, extra));
+    } catch (err) {
+      console.warn(`[CleanChat] replyWithPhoto failed, fallback to text:`, err.message);
+      sent = await ctx.reply(text, extra);
+    }
+  } else {
+    sent = await ctx.reply(text, extra);
+  }
   if (isStale()) {
     // Если пока сообщение летело по сети, пользователь уже нажал другую кнопку — удаляем устаревший ответ
     await safeDeleteMessage(ctx, chatId, sent.message_id);
