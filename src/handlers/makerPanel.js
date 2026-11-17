@@ -438,7 +438,7 @@ const pre = (r, text) => r.add(text, 'pre');
 function buildGuide() {
   const r = rich().bold('📖 Как добавить позицию').nl(2);
   r.bold('1. Пришлите пост').nl()
-    .plain('Нажмите «➕ Добавить позицию» и пришлите фото (можно до 10) с описанием в подписи. Старый пост из группы тоже можно переслать — фото и текст сохранятся, но название и цену бот найдёт, только если они оформлены как в примере ниже. Иначе поправьте их после сохранения кнопками «✏️».').nl(2);
+    .plain('Нажмите «➕ Добавить позицию» и пришлите фото (можно до 10) с описанием в подписи. Можно переслать и старый пост из группы.').nl(2);
   r.bold('2. Как оформить подпись').nl();
   pre(r, 'Сырники с маком\n1 шт - 65 гр\nСостав: творог, желток, мак, мука.\n0,5кг - 14р');
   r.nl()
@@ -449,12 +449,13 @@ function buildGuide() {
     .plain('Начинки, вкусы, цвета — начните каждый вид с ▪️ и укажите цену под ним:').nl();
   pre(r, 'Блины\n▪️С печенью\n0,5кг - 15р\n▪️С лисичками\n0,5кг - 16р');
   r.nl().plain('Наличие можно будет отмечать по каждому виду. Обычные строки не начинайте с ▪️, • или «-».').nl(2);
-  r.bold('4. Выберите раздел').plain(' — и позиция готова.').nl(2);
+  r.bold('4. Проверьте черновик').nl()
+    .plain('Бот покажет, как понял пост: название, цену, варианты. Поправьте, что не так, кнопками «✏️», выберите раздел и нажмите «✅ Сохранить». Посты у всех разные — черновик как раз для этого.').nl(2);
   r.bold('5. Отмечайте наличие').nl()
     .plain('В кабинете нажатие на позицию переключает ✅ есть / ❌ под заказ. Ничего не поменялось — «👍 Наличие актуально». Через 3 дня без обновления покупатели увидят «уточняйте у мастера».').nl(2);
   r.bold('6. Сообщите подписчикам').nl()
     .plain('«📣 Сообщить подписчикам» → отметьте, что появилось → «Отправить». Не чаще раза в 4 часа.').nl(2);
-  r.bold('Если бот понял неправильно').nl()
+  r.bold('Изменить потом').nl()
     .plain('«✏️ Изменить позиции» → поправьте название или цену, или «🔁 Заменить пост». «👀 Как видят» — посмотреть глазами покупателя.').nl(2);
   r.italic('Подпись к фото — до 1024 символов (≈10–12 строк). Не помещается — разделите на два поста.');
   return r.build();
@@ -479,7 +480,7 @@ function askPost(ctx, { replaceItemId = null, error = null } = {}) {
     .plain('Пришлите пост так же, как публикуете в группе:').nl()
     .plain('• одно фото или альбом (до 10 фото);').nl()
     .plain('• в подписи — описание: первая строка станет названием, строка вида «0,5кг - 14р» — ценой.').nl(2)
-    .italic('Жирный и курсив из Telegram сохранятся. Старый пост из группы можно переслать — после сохранения проверьте название и цену.');
+    .italic('Жирный и курсив из Telegram сохранятся. Можно переслать старый пост из группы — перед сохранением бот покажет черновик, и название с ценой можно поправить.');
   const back = replaceItemId ? `mkp:it:${replaceItemId}` : 'mkp:home';
   return show(ctx, r.build(), new InlineKeyboard()
     .text('📖 Как оформить пост', 'mkp:guide:a').row()
@@ -532,18 +533,167 @@ async function savePost(ctx, { photos, text, entities, replaceItemId, messageIds
   }
 
   const parsed = parseMakerPost({ text, entities, photos });
-  // Пост сохранён — убираем исходные сообщения, чтобы чат не засорялся (file_id фото остаются рабочими)
+  // Пост получен — убираем исходные сообщения, чтобы чат не засорялся (file_id фото остаются рабочими)
   await deleteUserMessages(ctx, messageIds.slice(0, -1));
 
+  const existing = replaceItemId ? ownItem(ctx, replaceItemId)?.item : null;
+  drafts.set(ctx.from.id, {
+    makerId: maker.id,
+    replaceItemId: existing ? existing.id : null,
+    parsed,
+    title: parsed.title,
+    priceText: parsed.priceText,
+    category: existing ? existing.category : null,
+    // Варианты по умолчанию включаем, только если у каждого своя цена (как начинки блинов);
+    // обычный список «- размер, - материал» вариантами не считаем
+    useVariants: parsed.variants.length > 0 && parsed.variants.every(v => v.price),
+    titleSuspicious: parsed.titleSuspicious,
+  });
+  await showDraft(ctx);
+}
+
+// ── Черновик: бот показывает, как понял пост, и ничего не сохраняет без подтверждения ──
+
+const drafts = new Map(); // userId -> черновик позиции
+
+function getDraft(ctx) {
+  const draft = drafts.get(ctx.from.id);
+  const maker = ownMaker(ctx);
+  return draft && maker && draft.makerId === maker.id ? { draft, maker } : null;
+}
+
+function draftItem(draft) {
+  return {
+    id: 'd',
+    title: draft.title,
+    price_text: draft.priceText,
+    body: draft.parsed.body,
+    body_entities: draft.parsed.bodyEntities,
+    photos: draft.parsed.photos,
+    variants: draft.useVariants ? draft.parsed.variants.map(v => ({ ...v, in_stock: true })) : [],
+    in_stock: true,
+  };
+}
+
+async function showDraft(ctx, { error = null } = {}) {
+  const found = getDraft(ctx);
+  if (!found) return showPanel(ctx);
+  const { draft } = found;
+  const { parsed } = draft;
+
+  const r = rich().bold('📝 Проверьте позицию').plain(' — я понял пост так:').nl(2);
+  if (error) r.plain(`⚠️ ${error}`).nl(2);
+
+  r.plain('📌 Название: ').bold(draft.title).nl();
+  if (draft.titleSuspicious && !draft.titleEdited) {
+    r.italic('   Похоже, первая строка — не название. Нажмите «✏️ Название» и напишите коротко.').nl();
+  }
+  r.plain(`💰 Цена: ${draft.priceText || '— не нашёл'}`).nl();
+  if (!draft.priceText) r.italic('   Нажмите «✏️ Цена» и напишите, например «14 р / 0,5 кг», или оставьте без цены.').nl();
+  r.plain(`🖼 Фото: ${parsed.photos.length}`).nl();
+
+  if (parsed.variants.length) {
+    r.nl().plain(`🧩 Нашёл ${parsed.variants.length} строки списком: ${parsed.variants.map(v => v.name).join(', ')}.`).nl()
+      .plain('Это разные варианты (начинки, вкусы, цвета), у каждого своё наличие?').nl()
+      .italic(draft.useVariants ? '   Сейчас: да, варианты.' : '   Сейчас: нет, просто текст.').nl();
+  }
+
+  const category = draft.category && CATEGORY_BY_ID[draft.category];
+  r.nl().plain(`🗂 Раздел: ${category ? category.title : '— выберите ниже'}`);
+
+  const kb = new InlineKeyboard();
+  if (parsed.variants.length) {
+    kb.text(draft.useVariants ? '• Да, варианты •' : 'Да, варианты', 'mkd:var:1')
+      .text(draft.useVariants ? 'Нет, просто текст' : '• Нет, просто текст •', 'mkd:var:0').row();
+  }
+  MAKER_CATEGORIES.forEach((cat, i) => {
+    kb.text(cat.id === draft.category ? `• ${cat.title} •` : cat.title, `mkd:cat:${cat.id}`);
+    if (i % 2 === 1) kb.row();
+  });
+  kb.row()
+    .text('✏️ Название', 'mkd:f:title').text('✏️ Цена', 'mkd:f:price').row()
+    .text('👀 Как увидят покупатели', 'mkp:pv:d:0').row()
+    .text('✅ Сохранить', 'mkd:save').text('✖️ Отмена', 'mkd:cancel');
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.callbackQuery(/^mkd:var:([01])$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const found = getDraft(ctx);
+  if (found) found.draft.useVariants = ctx.match[1] === '1';
+  await showDraft(ctx);
+});
+
+makerPanelComposer.callbackQuery(/^mkd:cat:([a-z]+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const found = getDraft(ctx);
+  if (found && CATEGORY_BY_ID[ctx.match[1]]) found.draft.category = ctx.match[1];
+  await showDraft(ctx);
+});
+
+makerPanelComposer.callbackQuery(/^mkd:f:(title|price)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  if (!getDraft(ctx)) return showPanel(ctx);
+  setPendingInput(ctx.from.id, 'maker_draft_field', { field: ctx.match[1] });
+  const prompt = ctx.match[1] === 'title'
+    ? 'Напишите короткое название позиции (3–5 слов) — оно будет на кнопке:'
+    : 'Напишите цену, например «14 р / 0,5 кг» или «45 р». Отправьте «-», чтобы оставить без цены.';
+  await show(ctx, rich().plain(prompt).build(), new InlineKeyboard().text('◀️ Назад к черновику', 'mkd:back'));
+});
+
+makerPanelComposer.callbackQuery('mkd:back', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await showDraft(ctx);
+});
+
+makerPanelComposer.callbackQuery(/^mkp:pv:d:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const found = getDraft(ctx);
+  if (!found) return showPanel(ctx);
+  const { built, photo, keyboard } = buildItemCard(draftItem(found.draft), found.maker, { photoIndex: Number(ctx.match[1]), preview: true });
+  keyboard.text('◀️ Назад к черновику', 'mkd:back');
+  await show(ctx, built, keyboard, photo ? { photo } : {});
+});
+
+makerPanelComposer.callbackQuery('mkd:cancel', async (ctx) => {
+  drafts.delete(ctx.from.id);
+  await ctx.answerCallbackQuery({ text: 'Черновик удалён' });
+  await showPanel(ctx);
+});
+
+makerPanelComposer.callbackQuery('mkd:save', async (ctx) => {
+  const found = getDraft(ctx);
+  if (!found) {
+    await ctx.answerCallbackQuery();
+    return showPanel(ctx);
+  }
+  const { draft, maker } = found;
+  if (!draft.category) {
+    await ctx.answerCallbackQuery({ text: 'Выберите раздел — по нему позицию находят в «Что есть сейчас»', show_alert: true });
+    return;
+  }
+  const data = {
+    ...draft.parsed,
+    title: draft.title,
+    priceText: draft.priceText,
+    variants: draft.useVariants ? draft.parsed.variants : [],
+  };
   let item;
-  if (replaceItemId && ownItem(ctx, replaceItemId)) {
-    item = replaceMakerItemPost(replaceItemId, parsed);
+  if (draft.replaceItemId && ownItem(ctx, draft.replaceItemId)) {
+    item = replaceMakerItemPost(draft.replaceItemId, data);
+    if (item.category !== draft.category) updateMakerItemField(item.id, 'category', draft.category);
   } else {
-    item = createMakerItem(maker.id, parsed);
+    if (getMakerItems(maker.id).length >= MAX_ITEMS) {
+      await ctx.answerCallbackQuery({ text: `Максимум ${MAX_ITEMS} позиций`, show_alert: true });
+      return;
+    }
+    item = createMakerItem(maker.id, { ...data, category: draft.category });
     touchMakerStock(maker.id);
   }
+  drafts.delete(ctx.from.id);
+  await ctx.answerCallbackQuery({ text: '✅ Сохранено' });
   await showItemManage(ctx, item.id, { justSaved: true });
-}
+});
 
 makerPanelComposer.on(['message:photo', 'message:text'], async (ctx, next) => {
   if (ctx.chat.type !== 'private') return next();
@@ -649,6 +799,20 @@ async function handleTextInput(ctx, next) {
     return showPanel(ctx);
   }
 
+  const draftField = getPendingInput(userId, 'maker_draft_field');
+  if (draftField) {
+    clearPendingInput(userId);
+    const found = getDraft(ctx);
+    if (!found) return showPanel(ctx);
+    if (draftField.field === 'title') {
+      found.draft.title = text.replace(/\s+/g, ' ').slice(0, 48);
+      found.draft.titleEdited = true;
+    } else {
+      found.draft.priceText = text === '-' ? null : text.slice(0, 32);
+    }
+    return showDraft(ctx);
+  }
+
   const fieldState = getPendingInput(userId, 'maker_item_field');
   if (fieldState) {
     clearPendingInput(userId);
@@ -691,12 +855,8 @@ async function showItemManage(ctx, itemId, { justSaved = false } = {}) {
     .plain(`🖼 Фото: ${item.photos.length}`).nl();
   if (item.variants.length) {
     r.plain(`🧩 Варианты (${item.variants.length}): ${item.variants.map(v => `${v.in_stock ? '✅' : '❌'} ${v.name}`).join(', ')}`);
-    if (justSaved) r.nl().italic('Нашёл в посте несколько вариантов — наличие можно отмечать по каждому. Если это не варианты, нажмите «Это не варианты».');
   } else {
     r.plain(item.in_stock ? '✅ В наличии' : '❌ Нет в наличии (под заказ)');
-  }
-  if (justSaved && item.category === 'other') {
-    r.nl(2).bold('Выберите раздел').plain(' — по нему покупатели находят позицию в сводке «Что есть сейчас»:');
   }
 
   const kb = new InlineKeyboard();
@@ -710,8 +870,9 @@ async function showItemManage(ctx, itemId, { justSaved = false } = {}) {
   if (item.variants.length) {
     kb.text('🧩 Наличие вариантов', `mkp:v:${item.id}`).text('✖️ Это не варианты', `mkp:vclr:${item.id}`).row();
   }
-  kb.text('🗑 Удалить', `mkp:del:${item.id}`).row()
-    .text('◀️ К позициям', 'mkp:items').text('🏠 В кабинет', 'mkp:home');
+  kb.text('🗑 Удалить', `mkp:del:${item.id}`).row();
+  if (justSaved) kb.text('➕ Добавить ещё позицию', 'mkp:add').row();
+  kb.text('◀️ К позициям', 'mkp:items').text('🏠 В кабинет', 'mkp:home');
   return show(ctx, r.build(), kb);
 }
 

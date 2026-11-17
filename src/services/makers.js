@@ -54,19 +54,49 @@ export function notifyCooldownLeftMinutes(maker, now = new Date()) {
   return Math.max(0, Math.ceil(left));
 }
 
-// Цена в посте: «0,5кг - 14р», «0,4кг (4шт) - 15р», «1 кубик - 5р.»
-const PRICE_RE = /(\d+(?:[.,]\d+)?\s*(?:кг|гр|г|шт|мл|л|кубик[а-я]*|порци[а-я]*)?\.?(?:\s*\([^)\n]*\))?)\s*[-–—=:]\s*(\d+(?:[.,]\d+)?)\s*(?:руб(?:лей|ля|\.)?|р\.?|byn)(?![а-яёa-z])/giu;
+// Валюта после числа: «р», «р.», «руб», «рублей», «BYN», «бел. руб»
+const CUR = String.raw`(?:бел\.?\s*)?(?:руб(?:лей|ля|\.)?|р\.?|byn)(?![а-яёa-z])`;
+const NUM = String.raw`(\d+(?:[.,]\d+)?)`;
+
+// 1. Фасовка, тире, цена: «0,5кг - 14р», «0,4кг (4шт) - 15р», «1 кубик - 5р.»
+const PRICE_RE = new RegExp(String.raw`(\d+(?:[.,]\d+)?\s*(?:кг|гр|г|шт|мл|л|кубик[а-я]*|порци[а-я]*)?\.?(?:\s*\([^)\n]*\))?)\s*[-–—=:]\s*${NUM}\s*${CUR}`, 'giu');
+// 2. Цена за единицу: «30 руб/кг», «25р за шт», «40 р за 1 порцию»
+const PRICE_PER_RE = new RegExp(String.raw`${NUM}\s*${CUR}\s*(?:\/|за)\s*([^\n,;()]{1,20})`, 'iu');
+// 3. Просто цена: «Цена: 25р», «стоимость 30 рублей», «от 40 р», «25 BYN»
+const PRICE_ANY_RE = new RegExp(String.raw`(от\s*)?${NUM}\s*${CUR}`, 'giu');
+
+const fmtNum = (n) => String(n).replace('.', ',');
 
 function parsePrice(text) {
   const matches = [...text.matchAll(PRICE_RE)];
-  if (matches.length === 0) return null;
   if (matches.length === 1) {
     const [, unit, price] = matches[0];
     return `${price} р / ${unit.replace(/\s+/g, ' ').replace(/\.$/, '').trim()}`;
   }
-  // Несколько вариантов в одном посте (например, блины с разными начинками) — «от N р»
-  const min = Math.min(...matches.map(m => Number(m[2].replace(',', '.'))));
-  return `от ${String(min).replace('.', ',')} р`;
+  if (matches.length > 1) {
+    // Несколько вариантов в одном посте (например, блины с разными начинками) — «от N р»
+    const min = Math.min(...matches.map(m => Number(m[2].replace(',', '.'))));
+    return `от ${fmtNum(min)} р`;
+  }
+
+  const per = text.match(PRICE_PER_RE);
+  if (per) return `${per[1]} р / ${per[2].trim().replace(/[.\s]+$/u, '')}`;
+
+  const any = [...text.matchAll(PRICE_ANY_RE)];
+  if (any.length === 1) return `${any[0][1] ? 'от ' : ''}${any[0][2]} р`;
+  if (any.length > 1) {
+    const min = Math.min(...any.map(m => Number(m[2].replace(',', '.'))));
+    return `от ${fmtNum(min)} р`;
+  }
+  return null;
+}
+
+// Короткая цена в строке (для вариантов): «15 р»
+function linePrice(line) {
+  const m = line.match(new RegExp(PRICE_RE.source, 'iu')) ;
+  if (m) return `${m[2]} р`;
+  const any = line.match(new RegExp(PRICE_ANY_RE.source, 'iu'));
+  return any ? `${any[1] ? 'от ' : ''}${any[2]} р` : null;
 }
 
 // Строка-вариант: «▪️С печенью», «• С ветчиной и сыром», «- Рафаэло»
@@ -88,8 +118,7 @@ export function parseVariants(text) {
     }
     const current = variants[variants.length - 1];
     if (current && !current.price) {
-      const price = [...line.matchAll(PRICE_RE)][0];
-      if (price) current.price = `${price[2]} р`;
+      current.price = linePrice(line);
     }
   }
   return variants.length >= 2 ? variants : [];
@@ -102,6 +131,15 @@ export function variantNameInline(name) {
 
 export function variantsSummary(item) {
   return item.variants.filter(v => v.in_stock).map(v => variantNameInline(v.name)).join(', ');
+}
+
+// Первая строка похожа не на название, а на приветствие или анонс
+const NOT_TITLE_RE = /^(привет|добр(ый|ое|ого)|здравствуй|всем|сегодня|наличие|в наличии|меню|принимаю|заказ|ассортимент)/iu;
+
+export function isSuspiciousTitle(text) {
+  const firstLine = text.split('\n').map(l => l.trim()).find(Boolean) || '';
+  const clean = firstLine.replace(/^[^\p{L}\p{N}]+/u, '');
+  return !clean || clean.length > 48 || NOT_TITLE_RE.test(clean);
 }
 
 function parseTitle(text) {
@@ -130,6 +168,7 @@ export function parseMakerPost({ text = '', entities = [], photos = [] }) {
       .map(e => ({ ...e, length: Math.min(e.length, trimmedBody.length - e.offset) })),
     photos,
     variants: parseVariants(trimmedBody),
+    titleSuspicious: isSuspiciousTitle(trimmedBody),
   };
 }
 
