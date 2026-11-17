@@ -8,7 +8,13 @@ export const MINSK_TIMEZONE = 'Europe/Minsk';
  * Получить текущие компоненты времени в Минске
  */
 export function getMinskNowParts() {
-  const now = new Date();
+  return getMinskParts(new Date());
+}
+
+/**
+ * Компоненты даты/времени произвольного момента в Минске
+ */
+export function getMinskParts(date) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: MINSK_TIMEZONE,
     year: 'numeric',
@@ -18,7 +24,7 @@ export function getMinskNowParts() {
     minute: 'numeric',
     second: 'numeric',
     hourCycle: 'h23',
-  }).formatToParts(now).reduce((acc, p) => {
+  }).formatToParts(date).reduce((acc, p) => {
     acc[p.type] = p.value;
     return acc;
   }, {});
@@ -104,26 +110,113 @@ export function parseCustomTimeInput(inputStr) {
 }
 
 /**
+ * SQLite datetime('now') хранит UTC в виде «YYYY-MM-DD HH:MM:SS» без зоны.
+ * new Date() читает такую строку как локальное время сервера — явно помечаем её как UTC.
+ */
+export function parseDbUtc(value) {
+  if (value instanceof Date) return value;
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(str)) {
+    return new Date(`${str.replace(' ', 'T')}Z`);
+  }
+  return new Date(str);
+}
+
+const PRESET_LABELS = {
+  asap: 'Как можно скорее (~15–20 мин)',
+  '30m': 'Через 30 минут',
+  '45m': 'Через 45 минут',
+  '60m': 'Через 1 час',
+};
+const RELATIVE_MINUTES = { '30m': 30, '45m': 45, '60m': 60 };
+export const ASAP_MINUTES = 20;
+
+/**
+ * Момент времени для «часов:минут» по Минску в тот же минский день, что и ref
+ */
+export function minskDateAt(hours, minutes, ref = new Date()) {
+  const p = getMinskParts(ref);
+  const wallAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  const offsetMs = wallAsUtc - Math.floor(ref.getTime() / 1000) * 1000;
+  return new Date(Date.UTC(p.year, p.month - 1, p.day, hours, minutes) - offsetMs);
+}
+
+/**
+ * Ближайший к ref момент с указанным временем «ЧЧ:ММ» (в пределах ±12 часов) —
+ * для полей, где хранится только время без даты (ready_at)
+ */
+export function nearestMinskTime(hhmm, ref = new Date()) {
+  const [hh, mm] = String(hhmm).split(':').map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  let candidate = minskDateAt(hh, mm, ref);
+  const HALF_DAY = 12 * 60 * 60 * 1000;
+  if (candidate - ref > HALF_DAY) candidate = new Date(candidate.getTime() - 2 * HALF_DAY);
+  else if (ref - candidate > HALF_DAY) candidate = new Date(candidate.getTime() + 2 * HALF_DAY);
+  return candidate;
+}
+
+// Минуты от полуночи по Минску
+export function minskMinutesOfDay(date = new Date()) {
+  const p = getMinskParts(date);
+  return p.hour * 60 + p.minute;
+}
+
+// Дата по Минску в формате YYYY-MM-DD
+export function minskDateStr(date = new Date()) {
+  const p = getMinskParts(date);
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+}
+
+export function minutesToHHMM(totalMinutes) {
+  const m = ((totalMinutes % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Разбор выбранного жильцом слота времени в подпись и точный момент готовности.
+ * Относительные слоты фиксируют точное время от момента выбора, чтобы кухня и жилец видели одно и то же.
+ */
+export function resolveTimeKey(timeKey, now = new Date()) {
+  if (timeKey === 'asap') {
+    return { label: PRESET_LABELS.asap, targetAt: new Date(now.getTime() + ASAP_MINUTES * 60000), isAsap: true };
+  }
+
+  if (RELATIVE_MINUTES[timeKey]) {
+    const targetAt = new Date(now.getTime() + RELATIVE_MINUTES[timeKey] * 60000);
+    return { label: `${PRESET_LABELS[timeKey]} (к ${formatMinskTime(targetAt)})`, targetAt, isAsap: false };
+  }
+
+  const customMatch = String(timeKey).match(/^custom_(\d{2})_(\d{2})$/);
+  if (customMatch) {
+    const targetAt = minskDateAt(Number(customMatch[1]), Number(customMatch[2]), now);
+    return { label: `К ${customMatch[1]}:${customMatch[2]}`, targetAt, isAsap: false };
+  }
+
+  return { label: String(timeKey), targetAt: new Date(now.getTime() + ASAP_MINUTES * 60000), isAsap: true };
+}
+
+/**
  * Преобразование timeKey в человекопонятный лейбл
  */
 export function getDesiredTimeLabel(timeKey) {
-  const PRESET_LABELS = {
-    asap: 'Как можно скорее (~15–20 мин)',
-    '30m': 'Через 30 минут',
-    '45m': 'Через 45 минут',
-    '60m': 'Через 1 час',
-  };
+  return resolveTimeKey(timeKey).label;
+}
 
-  if (PRESET_LABELS[timeKey]) {
-    return PRESET_LABELS[timeKey];
+// timeKey для точного времени по Минску (используется в подсказках свободного слота)
+export function timeKeyForDate(date) {
+  const [hh, mm] = formatMinskTime(date).split(':');
+  return `custom_${hh}_${mm}`;
+}
+
+/**
+ * Время заказа для кухни: точный target_at, если он сохранён, иначе разбор подписи (старые заказы)
+ */
+export function getOrderTimeInfo(order) {
+  const parsed = parseDesiredTime(order.desired_time, order.created_at);
+  if (order.target_at && !parsed.isAsap) {
+    return { ...parsed, targetTimeStr: formatMinskTime(new Date(order.target_at)) };
   }
-
-  const customMatch = timeKey.match(/^custom_(\d{2})_(\d{2})$/);
-  if (customMatch) {
-    return `К ${customMatch[1]}:${customMatch[2]}`;
-  }
-
-  return timeKey;
+  return parsed;
 }
 
 /**
@@ -152,7 +245,8 @@ export function parseDesiredTime(desiredTime, orderCreatedAt = null) {
   else if (desiredTime.includes('45')) minutes = 45;
   else if (desiredTime.includes('1 час') || desiredTime.includes('60')) minutes = 60;
 
-  const base = orderCreatedAt ? new Date(orderCreatedAt) : new Date();
+  // Старые заказы без точного времени в подписи: считаем от момента создания
+  const base = orderCreatedAt ? parseDbUtc(orderCreatedAt) : new Date();
   const targetDate = new Date(base.getTime() + minutes * 60 * 1000);
   const targetTimeStr = formatMinskTime(targetDate);
 

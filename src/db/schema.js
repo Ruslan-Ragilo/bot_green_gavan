@@ -124,4 +124,51 @@ CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_place_id ON orders(place_id);
 CREATE INDEX IF NOT EXISTS idx_cart_user_place ON cart_items(user_id, place_id);
 CREATE INDEX IF NOT EXISTS idx_staff_user_place ON place_staff(user_id, place_id);
+
+-- «Домашнее и ручное»: мастера (кулинары, рукодельники). Заказы — напрямую в личке мастера.
+CREATE TABLE IF NOT EXISTS makers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  about TEXT NOT NULL DEFAULT '',
+  about_entities TEXT,             -- JSON: форматирование Telegram (жирный, курсив) как прислал мастер
+  contact TEXT,                    -- @username для кнопки «Написать» или телефон
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'hidden', 'rejected')),
+  cover_photo TEXT,                -- не используется (было фото карточки мастера)
+  stock_updated_at TEXT,           -- когда мастер последний раз подтверждал наличие (UTC)
+  last_notified_at TEXT,           -- последняя рассылка подписчикам (UTC)
+  notified_stock TEXT,             -- JSON: id позиций, которые были в наличии на момент прошлой рассылки
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Позиции мастера: пост целиком (текст + форматирование + фото), как мастер его прислал
+CREATE TABLE IF NOT EXISTS maker_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  maker_id INTEGER NOT NULL REFERENCES makers(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  price_text TEXT,
+  category TEXT NOT NULL DEFAULT 'other',
+  body TEXT NOT NULL DEFAULT '',
+  body_entities TEXT,
+  photos TEXT NOT NULL DEFAULT '[]', -- JSON-массив file_id
+  variants TEXT,                   -- JSON: [{ name, price, in_stock }] — начинки/варианты внутри одного поста
+  in_stock INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_maker_items_maker ON maker_items(maker_id);
+
+-- Простые настройки бота (ключ → значение), например обложка раздела «Домашнее и ручное»
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+
+-- Подписки жильцов на мастеров (уведомления о наличии)
+CREATE TABLE IF NOT EXISTS maker_subscriptions (
+  user_id INTEGER NOT NULL,
+  maker_id INTEGER NOT NULL REFERENCES makers(id) ON DELETE CASCADE,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, maker_id)
+);
 `;

@@ -9,6 +9,11 @@ import { setupComposer } from './handlers/setup.js';
 import { adminComposer } from './handlers/admin.js';
 import { transportComposer } from './handlers/transport.js';
 import { supportComposer } from './handlers/support.js';
+import { makersComposer } from './handlers/makers.js';
+import { makerPanelComposer } from './handlers/makerPanel.js';
+import { resetPendingInputMiddleware } from './utils/pendingInput.js';
+import { USER_COMMANDS, ADMIN_COMMANDS, syncMakerCommands } from './services/botCommands.js';
+import { getAllMakers } from './db/repositories/makers.js';
 
 export function createBot() {
   const botOptions = {
@@ -68,12 +73,17 @@ export function createBot() {
     }
   });
 
+  // Сброс ожидания текстового ввода при навигации кнопками/командами
+  bot.use(resetPendingInputMiddleware);
+
   // Подключаем модули обработчиков
   bot.use(adminComposer);
   bot.use(setupComposer);
   bot.use(startComposer);
   bot.use(transportComposer);
   bot.use(supportComposer);
+  bot.use(makersComposer);
+  bot.use(makerPanelComposer);
   bot.use(catalogComposer);
   bot.use(cartComposer);
   bot.use(ordersComposer);
@@ -133,42 +143,25 @@ export function createBot() {
 // Регистрация быстрых команд в кнопке «Меню» Telegram (возле поля ввода)
 export async function setupBotCommands(bot) {
   try {
-    // 1. Команды для обычных пользователей в личных сообщениях (транспорт)
-    await bot.api.setMyCommands([
-      { command: 'start', description: '🚌 Расписание транспорта' },
-      { command: 'transport', description: '🚌 Выбрать транспорт' },
-      { command: 'support', description: '❤️ Поддержка проекта и связь' },
-    ], {
+    // 1. Команды для обычных пользователей в личных сообщениях
+    await bot.api.setMyCommands(USER_COMMANDS, {
       scope: { type: 'all_private_chats' },
     });
 
-    // 2. Команды для групп (кухня, заведения)
-    await bot.api.setMyCommands([
-      { command: 'setup_place', description: '⚙️ Настройка заведения' },
-      { command: 'menu_items', description: '📋 Меню заведения' },
-      { command: 'add_item', description: '🍕 Добавить блюдо в меню' },
-      { command: 'del_item', description: '🗑 Удалить блюдо из меню' },
-      { command: 'iam_staff', description: '👨‍🍳 Доступ к заказам (я сотрудник)' },
-      { command: 'staff_list', description: '👥 Список персонала' },
-      { command: 'edit_place', description: '✏️ Изменить адрес/название' },
-    ], {
-      scope: { type: 'all_group_chats' },
-    });
-
-    // 3. Персональное меню в инпуте для администратора бота
+    // 2. Персональное меню в инпуте для администратора бота
     for (const adminId of config.adminIds) {
       try {
-        await bot.api.setMyCommands([
-          { command: 'admin', description: '👑 Панель администратора' },
-          { command: 'start', description: '🚌 Расписание транспорта' },
-          { command: 'transport', description: '🚌 Выбрать транспорт' },
-          { command: 'broadcast', description: '📢 Рассылка жильцам ЖК' },
-        ], {
+        await bot.api.setMyCommands(ADMIN_COMMANDS, {
           scope: { type: 'chat', chat_id: adminId },
         });
       } catch (e) {
         console.warn(`[Commands] Не удалось зарегистрировать меню админа для ${adminId}:`, e.message);
       }
+    }
+
+    // 3. Меню для мастеров
+    for (const maker of getAllMakers()) {
+      if (maker.status === 'active') await syncMakerCommands(bot.api, maker.user_id, true);
     }
     console.log('🔘 Быстрые команды в кнопке «Меню» успешно зарегистрированы.');
   } catch (err) {

@@ -11,7 +11,8 @@ export const DIR_BY_CODE = { m: 'to_minsk', g: 'to_gavan' };
 export function transportMenuKeyboard() {
   return new InlineKeyboard()
     .text('🚌 Общественный транспорт', 'transport:menu').row()
-    .text('☕️ Поддержать проект / Связь', 'support:menu');
+    .text('🧺 Домашнее и ручное', 'mk:home').row()
+    .text('❤️ Поддержка проекта / Связь', 'support:menu');
 }
 
 /**

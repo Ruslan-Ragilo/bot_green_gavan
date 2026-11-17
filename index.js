@@ -3,20 +3,16 @@ import process from 'node:process';
 import { webhookCallback } from 'grammy';
 import { config, validateConfig } from './config.js';
 import { createBot, setupBotCommands } from './src/bot.js';
-import { startExpiredOrdersJob, stopExpiredOrdersJob } from './src/jobs/expiredOrders.js';
 import { startTransportUpdaterJob, stopTransportUpdaterJob } from './src/jobs/transportUpdater.js';
 
 async function main() {
-  console.log('🚀 Инициализация Telegram-бота предзаказа для ЖК «Зелёная Гавань»...');
+  console.log('🚀 Инициализация Telegram-бота для ЖК «Зелёная Гавань» (Транспорт и Мастера)...');
 
   // Проверяем обязательные переменные окружения
   validateConfig();
 
   // Создаем экземпляр бота с подключенными хэндлерами
   const bot = createBot();
-
-  // Запускаем фоновую проверку просроченных заказов (setInterval раз в минуту)
-  startExpiredOrdersJob(bot);
 
   // Запускаем ночной крон актуализации расписания транспорта (раз в сутки в 04:00)
   startTransportUpdaterJob(bot);
@@ -26,7 +22,6 @@ async function main() {
   // Корректное завершение работы при остановке процесса
   const shutdown = async (signal) => {
     console.log(`\n🛑 Получен сигнал ${signal}. Завершение работы бота...`);
-    stopExpiredOrdersJob();
     stopTransportUpdaterJob();
 
     if (server) {

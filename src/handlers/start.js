@@ -6,8 +6,8 @@ import { renderScreen } from '../utils/cleanChat.js';
 export const startComposer = new Composer();
 
 const WELCOME_TEXT = (
-  `🚌 *Транспорт ЖК «Зелёная Гавань»*\n\n` +
-  `Выберите транспорт:`
+  `🌲 *Бот ЖК «Зелёная Гавань»*\n\n` +
+  `Выберите нужный сервис:`
 );
 
 // Обработка команды /start

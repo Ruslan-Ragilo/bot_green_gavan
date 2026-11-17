@@ -34,6 +34,23 @@ function allowMultiplePins(db) {
   console.log('[DB] Миграция: user_pins поддерживает несколько закреплённых расписаний');
 }
 
+function addMissingColumns(db, table, columns) {
+  const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name));
+  for (const [name, type] of Object.entries(columns)) {
+    if (!existing.has(name)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      console.log(`[DB] Миграция: добавлена колонка ${table}.${name}`);
+    }
+  }
+}
+
 export function runMigrations(db) {
   allowMultiplePins(db);
+  const tables = new Set(db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all().map(t => t.name));
+  if (tables.has('makers')) {
+    addMissingColumns(db, 'makers', { cover_photo: 'TEXT', notified_stock: 'TEXT' });
+  }
+  if (tables.has('maker_items')) {
+    addMissingColumns(db, 'maker_items', { variants: 'TEXT' });
+  }
 }

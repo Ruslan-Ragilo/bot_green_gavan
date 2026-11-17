@@ -52,8 +52,25 @@ async function safeDeleteMessage(ctx, chatId, messageId) {
   }
 }
 
+// Параметры подписи к фото из тех же extra, что и для текста (entities → caption_entities)
+function photoExtra(text, extra) {
+  const { entities, parse_mode, reply_markup } = extra;
+  return {
+    caption: text,
+    ...(entities ? { caption_entities: entities } : {}),
+    ...(parse_mode ? { parse_mode } : {}),
+    ...(reply_markup ? { reply_markup } : {}),
+  };
+}
+
+function photoMedia(photo, text, extra) {
+  const { caption, caption_entities, parse_mode } = photoExtra(text, extra);
+  return { type: 'photo', media: photo, caption, caption_entities, parse_mode };
+}
+
 /**
- * Внутренняя функция отрисовки экрана с проверкой на актуальность запроса
+ * Внутренняя функция отрисовки экрана с проверкой на актуальность запроса.
+ * options.photo — file_id: экран-фото с подписью text (иначе обычное текстовое сообщение).
  */
 async function executeRenderScreen(ctx, text, extra, seq, userId, chatId, options = {}) {
   const isStale = () => userRequestSeq.get(userId) !== seq;
@@ -72,12 +89,27 @@ async function executeRenderScreen(ctx, text, extra, seq, userId, chatId, option
   //    (кроме forceNew: например, кнопка на закреплённом сообщении — его нельзя затирать экраном)
   if (ctx.callbackQuery && !options.forceNew) {
     const clickedMsgId = ctx.callbackQuery.message?.message_id;
+    const clickedHasPhoto = Boolean(ctx.callbackQuery.message?.photo);
 
     try {
-      await ctx.editMessageText(text, extra);
+      if (options.photo && clickedHasPhoto) {
+        // Фото → фото: меняем картинку и подпись на месте (слайдер, переход между карточками)
+        await ctx.editMessageMedia(photoMedia(options.photo, text, extra), { reply_markup: extra.reply_markup });
+      } else if (!options.photo && !clickedHasPhoto) {
+        await ctx.editMessageText(text, extra);
+      } else {
+        // Текст ↔ фото на месте не превратить — заменяем сообщение новым
+        throw new Error('screen type changed');
+      }
       if (isStale()) return;
 
       if (clickedMsgId) {
+        // Нажали кнопку на старом сообщении (выше в чате) — оно стало экраном,
+        // а прежний экран убираем, чтобы в чате не висели два меню одновременно
+        const prevScreenId = getLastMessageId(userId);
+        if (prevScreenId && prevScreenId !== clickedMsgId) {
+          await safeDeleteMessage(ctx, chatId, prevScreenId);
+        }
         setLastMessageId(userId, clickedMsgId);
       }
       return;
@@ -89,7 +121,9 @@ async function executeRenderScreen(ctx, text, extra, seq, userId, chatId, option
       }
       if (isStale()) return;
 
-      console.warn(`[CleanChat] editMessageText fallback для user ${userId}:`, desc);
+      if (desc !== 'screen type changed') {
+        console.warn(`[CleanChat] edit fallback для user ${userId}:`, desc);
+      }
       if (clickedMsgId) {
         await safeDeleteMessage(ctx, chatId, clickedMsgId);
       }
@@ -107,7 +141,9 @@ async function executeRenderScreen(ctx, text, extra, seq, userId, chatId, option
   if (isStale()) return;
 
   // 4. Отправляем ровно одно свежее сообщение и сохраняем его ID в базу данных
-  const sent = await ctx.reply(text, extra);
+  const sent = options.photo
+    ? await ctx.replyWithPhoto(options.photo, photoExtra(text, extra))
+    : await ctx.reply(text, extra);
   if (isStale()) {
     // Если пока сообщение летело по сети, пользователь уже нажал другую кнопку — удаляем устаревший ответ
     await safeDeleteMessage(ctx, chatId, sent.message_id);
