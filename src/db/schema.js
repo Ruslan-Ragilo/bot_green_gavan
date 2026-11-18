@@ -169,10 +169,29 @@ CREATE TABLE IF NOT EXISTS maker_items (
   photos TEXT NOT NULL DEFAULT '[]', -- JSON-массив file_id
   variants TEXT,                   -- JSON: [{ name, price, in_stock }] — начинки/варианты внутри одного поста
   in_stock INTEGER NOT NULL DEFAULT 1,
+  published INTEGER NOT NULL DEFAULT 1, -- 0 — мастер скрыл позицию (например, сезонную), покупатели её не видят
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_maker_items_maker ON maker_items(maker_id);
+
+-- Тематические подборки («🎄 Новогодняя подборка»): создаёт и показывает/скрывает администратор
+CREATE TABLE IF NOT EXISTS maker_collections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  description_entities TEXT,
+  visible INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Какие позиции мастера отметили в подборку
+CREATE TABLE IF NOT EXISTS maker_collection_items (
+  collection_id INTEGER NOT NULL REFERENCES maker_collections(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES maker_items(id) ON DELETE CASCADE,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (collection_id, item_id)
+);
 
 -- Простые настройки бота (ключ → значение), например обложка раздела «Домашнее и ручное»
 CREATE TABLE IF NOT EXISTS app_settings (

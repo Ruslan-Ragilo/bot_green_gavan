@@ -101,7 +101,7 @@ export function runMigrations(db) {
   addMissingColumns(db, 'places', PLACE_COLUMNS);
   addMissingColumns(db, 'orders', ORDER_COLUMNS);
   addMissingColumns(db, 'makers', { cover_photo: 'TEXT', notified_stock: 'TEXT' });
-  addMissingColumns(db, 'maker_items', { variants: 'TEXT' });
+  addMissingColumns(db, 'maker_items', { variants: 'TEXT', published: 'INTEGER NOT NULL DEFAULT 1' });
   allowNoShowStatus(db);
   // Индекс для лимита заказов на слот — только после того, как колонка target_at точно существует
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_place_target ON orders(place_id, target_at)');

@@ -13,6 +13,8 @@ import {
   toggleMakerItemStock, deleteMakerItem, touchMakerStock, markMakerNotified,
   getSubscriberIds, countSubscribers, unsubscribe, findUserIdByUsername, deleteMaker,
   getSectionCover, setSectionCover, setVariantStock, clearVariants,
+  toggleMakerItemPublished, getAllCollections, getVisibleCollections, getCollection, createCollection, updateCollection,
+  toggleCollectionVisible, deleteCollection, getItemCollectionIds, toggleItemInCollection, countMakerItemsInCollection,
 } from '../db/repositories/makers.js';
 import {
   MAKER_CATEGORIES, CATEGORY_BY_ID, parseMakerPost, formatWhen, isStockFresh, notifyCooldownLeftMinutes,
@@ -91,6 +93,12 @@ export async function showPanel(ctx) {
   if (maker.stock_updated_at && !fresh) {
     r.nl().italic('Покупатели видят «наличие уточняйте» — подтвердите или обновите его.');
   }
+  // Открытые подборки, куда мастер ещё ничего не добавил
+  for (const c of getVisibleCollections()) {
+    if (items.length && countMakerItemsInCollection(maker.id, c.id) === 0) {
+      r.nl(2).plain('🎁 Открыта подборка ').bold(c.title).plain(' — добавьте свои позиции: «✏️ Изменить позиции» → позиция → «🎁 Подборки».');
+    }
+  }
 
   if (items.length === 0) {
     r.nl(2).plain('Добавьте первую позицию: пришлите пост, как публикуете в группе, — фото и описание.');
@@ -99,12 +107,13 @@ export async function showPanel(ctx) {
     for (const item of items.slice(0, MAX_ITEMS)) {
       if (item.variants.length) {
         const on = item.variants.filter(v => v.in_stock).length;
-        kb.text(`${on ? '✅' : '❌'} ${item.title} (${on} из ${item.variants.length}) ›`, `mkp:v:${item.id}`).row();
+        kb.text(`${on ? '✅' : '❌'} ${item.published ? '' : '🙈 '}${item.title} (${on} из ${item.variants.length}) ›`, `mkp:v:${item.id}`).row();
       } else {
-        kb.text(`${item.in_stock ? '✅' : '❌'} ${item.title}`, `mkp:t:${item.id}`).row();
+        kb.text(`${item.in_stock ? '✅' : '❌'} ${item.published ? '' : '🙈 '}${item.title}`, `mkp:t:${item.id}`).row();
       }
     }
     kb.text('👍 Наличие актуально', 'mkp:fresh').text('📣 Сообщить подписчикам', 'mkp:notify').row();
+    if (items.some(i => !i.published)) r.nl().italic('🙈 — скрытая позиция, покупатели её не видят.');
   }
 
   kb.text('➕ Добавить позицию', 'mkp:add').text('📖 Как оформить', 'mkp:guide:h').row();
@@ -273,7 +282,7 @@ function itemLine(item) {
 }
 
 function buildNotification(maker, items, highlightIds) {
-  const inStock = items.filter(i => i.in_stock);
+  const inStock = items.filter(i => i.in_stock && i.published);
   const highlighted = inStock.filter(i => highlightIds.has(i.id));
   const others = inStock.filter(i => !highlightIds.has(i.id));
 
@@ -323,7 +332,7 @@ async function showNotifyPicker(ctx, maker) {
     return show(ctx, r.build(), kb);
   }
 
-  const inStock = getMakerItems(maker.id).filter(i => i.in_stock);
+  const inStock = getMakerItems(maker.id).filter(i => i.in_stock && i.published);
   if (inStock.length === 0) {
     r.plain('Сейчас ничего не отмечено в наличии. Отметьте позиции ✅ в кабинете — и сообщите подписчикам.');
     kb.text('◀️ В кабинет', 'mkp:home');
@@ -421,7 +430,7 @@ makerPanelComposer.callbackQuery('mkp:notify_go', async (ctx) => {
   const highlightIds = sel && sel.makerId === maker.id ? sel.ids : new Set();
   notifySelections.delete(ctx.from.id);
 
-  const inStockIds = getMakerItems(maker.id).filter(i => i.in_stock).map(i => i.id);
+  const inStockIds = getMakerItems(maker.id).filter(i => i.in_stock && i.published).map(i => i.id);
   markMakerNotified(maker.id, inStockIds);
   touchMakerStock(maker.id);
   await ctx.answerCallbackQuery({ text: '📣 Рассылка запущена' });
@@ -806,6 +815,43 @@ async function handleTextInput(ctx, next) {
     return showPanel(ctx);
   }
 
+  // Подборки (админ)
+  if (isAdmin(userId)) {
+    const colTitle = getPendingInput(userId, 'col_new_title');
+    if (colTitle) {
+      if (text.length < 2 || text.length > 40) {
+        return show(ctx, rich().plain('⚠️ Название — от 2 до 40 символов. Попробуйте ещё раз:').build(),
+          new InlineKeyboard().text('✖️ Отмена', 'mkc:list'));
+      }
+      setPendingInput(userId, 'col_new_desc', { title: text });
+      return show(ctx, rich().bold('➕ Новая подборка — шаг 2 из 2').nl(2)
+        .plain('Короткое описание для покупателей и мастеров: о чём подборка, до какого числа лучше заказывать. Отправьте «-», если без описания.').build(),
+      new InlineKeyboard().text('✖️ Отмена', 'mkc:list'));
+    }
+    const colDesc = getPendingInput(userId, 'col_new_desc');
+    if (colDesc) {
+      clearPendingInput(userId);
+      const c = createCollection({
+        title: colDesc.title,
+        description: text === '-' ? '' : ctx.message.text,
+        descriptionEntities: text === '-' ? [] : entities,
+      });
+      const { built, kb } = collectionAdminCard(c);
+      const done = rich().plain('✅ Подборка создана. Пока она скрыта — покажите её, когда будете готовы.').nl(2).rich(built.text, built.entities).build();
+      return show(ctx, done, kb);
+    }
+    const colEdit = getPendingInput(userId, 'col_edit');
+    if (colEdit) {
+      clearPendingInput(userId);
+      if (colEdit.field === 'title') updateCollection(colEdit.id, { title: text.slice(0, 40) });
+      else updateCollection(colEdit.id, { description: text === '-' ? '' : ctx.message.text, descriptionEntities: text === '-' ? [] : entities });
+      const c = getCollection(colEdit.id);
+      if (!c) return show(ctx, collectionsAdminView().built, collectionsAdminView().kb);
+      const { built, kb } = collectionAdminCard(c);
+      return show(ctx, built, kb);
+    }
+  }
+
   const draftField = getPendingInput(userId, 'maker_draft_field');
   if (draftField) {
     clearPendingInput(userId);
@@ -842,7 +888,7 @@ makerPanelComposer.callbackQuery('mkp:items', async (ctx) => {
   if (!maker) return showPanel(ctx);
   const kb = new InlineKeyboard();
   for (const item of getMakerItems(maker.id).slice(0, MAX_ITEMS)) {
-    kb.text(itemButtonLabel(item), `mkp:it:${item.id}`).row();
+    kb.text(`${item.published ? '' : '🙈 '}${itemButtonLabel(item)}`, `mkp:it:${item.id}`).row();
   }
   kb.text('◀️ В кабинет', 'mkp:home');
   await show(ctx, rich().bold('✏️ Изменить позиции').nl(2).plain('Выберите позицию:').build(), kb);
@@ -865,6 +911,9 @@ async function showItemManage(ctx, itemId, { justSaved = false } = {}) {
   } else {
     r.plain(item.in_stock ? '✅ В наличии' : '❌ Нет в наличии (под заказ)');
   }
+  r.nl().plain(item.published ? '👁 Опубликована — покупатели видят' : '🙈 Скрыта — покупатели не видят');
+  const inCollections = getAllCollections().filter(c => getItemCollectionIds(item.id).includes(c.id));
+  if (inCollections.length) r.nl().plain(`🎁 В подборках: ${inCollections.map(c => c.title).join(', ')}`);
 
   const kb = new InlineKeyboard();
   MAKER_CATEGORIES.forEach((cat, i) => {
@@ -877,11 +926,59 @@ async function showItemManage(ctx, itemId, { justSaved = false } = {}) {
   if (item.variants.length) {
     kb.text('🧩 Наличие вариантов', `mkp:v:${item.id}`).text('✖️ Это не варианты', `mkp:vclr:${item.id}`).row();
   }
+  kb.text(item.published ? '🙈 Скрыть от покупателей' : '👁 Опубликовать', `mkp:pub:${item.id}`);
+  if (getVisibleCollections().length) kb.text('🎁 Подборки', `mkp:cols:${item.id}`);
+  kb.row();
   kb.text('🗑 Удалить', `mkp:del:${item.id}`).row();
   if (justSaved) kb.text('➕ Добавить ещё позицию', 'mkp:add').row();
   kb.text('◀️ К позициям', 'mkp:items').text('🏠 В кабинет', 'mkp:home');
   return show(ctx, r.build(), kb);
 }
+
+// Опубликовать / скрыть позицию (например, сезонную — до следующего сезона)
+makerPanelComposer.callbackQuery(/^mkp:pub:(\d+)$/, async (ctx) => {
+  const own = ownItem(ctx, Number(ctx.match[1]));
+  if (!own) {
+    await ctx.answerCallbackQuery();
+    return showPanel(ctx);
+  }
+  const item = toggleMakerItemPublished(own.item.id);
+  await ctx.answerCallbackQuery({ text: item.published ? '👁 Позиция опубликована' : '🙈 Позиция скрыта от покупателей' });
+  await showItemManage(ctx, item.id);
+});
+
+// В какие открытые подборки входит позиция
+async function showItemCollections(ctx, itemId) {
+  const own = ownItem(ctx, itemId);
+  if (!own) return showPanel(ctx);
+  const inIds = getItemCollectionIds(itemId);
+  const r = rich().bold('🎁 Подборки').nl(2)
+    .plain('Отметьте, в какие подборки добавить ').bold(own.item.title).plain('. Позиция останется в вашем меню, а в подборке появится у покупателей.');
+  if (!own.item.published) r.nl(2).italic('Позиция скрыта — в подборке её тоже не будет видно, пока вы её не опубликуете.');
+  const kb = new InlineKeyboard();
+  for (const c of getVisibleCollections()) {
+    kb.text(`${inIds.includes(c.id) ? '☑️' : '⬜'} ${c.title}`, `mkp:ct:${itemId}:${c.id}`).row();
+  }
+  kb.text('◀️ К позиции', `mkp:it:${itemId}`);
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.callbackQuery(/^mkp:cols:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await showItemCollections(ctx, Number(ctx.match[1]));
+});
+
+makerPanelComposer.callbackQuery(/^mkp:ct:(\d+):(\d+)$/, async (ctx) => {
+  const own = ownItem(ctx, Number(ctx.match[1]));
+  const collection = getCollection(Number(ctx.match[2]));
+  if (!own || !collection || !collection.visible) {
+    await ctx.answerCallbackQuery();
+    return own ? showItemCollections(ctx, own.item.id) : showPanel(ctx);
+  }
+  const added = toggleItemInCollection(own.item.id, collection.id);
+  await ctx.answerCallbackQuery({ text: added ? `Добавлено в «${collection.title}»` : `Убрано из «${collection.title}»` });
+  await showItemCollections(ctx, own.item.id);
+});
 
 makerPanelComposer.callbackQuery(/^mkp:it:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
@@ -980,7 +1077,7 @@ function makersAdminView() {
   if (makers.length > 0) r.plain('Выберите мастера, чтобы скрыть, одобрить или удалить.').nl();
   r.nl().plain(`🖼 Обложка раздела: ${getSectionCover() ? 'задана' : 'не задана — раздел показывается текстом'}`).nl();
   r.nl().italic('Передать карточку: /maker_owner <номер> @username (мастер должен хотя бы раз нажать /start).');
-  kb.text('🖼 Обложка раздела', 'mka:cover').row();
+  kb.text('🎁 Подборки', 'mkc:list').text('🖼 Обложка раздела', 'mka:cover').row();
   kb.text('◀️ В админ-панель', 'admin:main');
   return { built: r.build(), kb };
 }
@@ -1069,6 +1166,149 @@ makerPanelComposer.callbackQuery(/^mka:delok:(\d+)$/, async (ctx) => {
   }
   await ctx.answerCallbackQuery({ text: maker ? `🗑 «${maker.name}» удалён` : 'Уже удалён' });
   await editView(ctx, makersAdminView());
+});
+
+// ── Подборки (админ) ──────────────────────────────────────
+
+function collectionsAdminView() {
+  const list = getAllCollections();
+  const r = rich().bold('🎁 Подборки').nl(2)
+    .plain('Тематические подборки: «🎄 Новогодняя», «💝 14 февраля»… Видимые показываются кнопками вверху раздела «Домашнее и ручное», мастера добавляют в них свои позиции.').nl(2);
+  if (list.length === 0) r.italic('Пока нет ни одной подборки.');
+  const kb = new InlineKeyboard();
+  for (const c of list) {
+    kb.text(`${c.visible ? '👁' : '🙈'} ${c.title} · ${c.items_count}`, `mkc:c:${c.id}`).row();
+  }
+  kb.text('➕ Новая подборка', 'mkc:new').row();
+  kb.text('◀️ К мастерам', 'mka:list');
+  return { built: r.build(), kb };
+}
+
+function collectionAdminCard(c) {
+  const r = rich().bold(c.title).nl(2);
+  if (c.description) r.rich(c.description, c.description_entities).nl(2);
+  r.plain(c.visible ? '👁 Видна покупателям' : '🙈 Скрыта — покупатели не видят').nl()
+    .plain(`📦 Позиций от мастеров: ${c.items_count}`);
+  if (c.visible && c.items_count === 0) r.nl(2).italic('Пустая подборка у покупателей не показывается — сначала мастера должны добавить позиции.');
+  const kb = new InlineKeyboard()
+    .text(c.visible ? '🙈 Скрыть' : '👁 Показать покупателям', `mkc:vis:${c.id}`).row()
+    .text('✏️ Название', `mkc:ed:${c.id}:title`).text('✏️ Описание', `mkc:ed:${c.id}:description`).row()
+    .text('📣 Сообщить мастерам', `mkc:nm:${c.id}`).text('👀 Как видят', `mk:col:${c.id}`).row()
+    .text('🗑 Удалить', `mkc:del:${c.id}`).row()
+    .text('◀️ К подборкам', 'mkc:list');
+  return { built: r.build(), kb };
+}
+
+const adminOnly = async (ctx) => {
+  if (isAdmin(ctx.from.id)) return true;
+  await ctx.answerCallbackQuery().catch(() => {});
+  return false;
+};
+
+makerPanelComposer.callbackQuery('mkc:list', async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  await ctx.answerCallbackQuery();
+  const { built, kb } = collectionsAdminView();
+  await show(ctx, built, kb);
+});
+
+makerPanelComposer.callbackQuery(/^mkc:c:(\d+)$/, async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  await ctx.answerCallbackQuery();
+  const c = getCollection(Number(ctx.match[1]));
+  const { built, kb } = c ? collectionAdminCard(c) : collectionsAdminView();
+  await show(ctx, built, kb);
+});
+
+makerPanelComposer.callbackQuery('mkc:new', async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  await ctx.answerCallbackQuery();
+  setPendingInput(ctx.from.id, 'col_new_title');
+  await show(ctx, rich().bold('➕ Новая подборка — шаг 1 из 2').nl(2)
+    .plain('Название с эмодзи, например «🎄 Новогодняя подборка». Оно будет на кнопке у покупателей.').build(),
+  new InlineKeyboard().text('✖️ Отмена', 'mkc:list'));
+});
+
+makerPanelComposer.callbackQuery(/^mkc:vis:(\d+)$/, async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  const c = getCollection(Number(ctx.match[1]));
+  if (!c) return ctx.answerCallbackQuery();
+  const updated = toggleCollectionVisible(c.id);
+  await ctx.answerCallbackQuery({ text: updated.visible ? '👁 Подборка видна покупателям' : '🙈 Подборка скрыта' });
+  const { built, kb } = collectionAdminCard(updated);
+  await show(ctx, built, kb);
+});
+
+makerPanelComposer.callbackQuery(/^mkc:ed:(\d+):(title|description)$/, async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  await ctx.answerCallbackQuery();
+  setPendingInput(ctx.from.id, 'col_edit', { id: Number(ctx.match[1]), field: ctx.match[2] });
+  const prompt = ctx.match[2] === 'title'
+    ? 'Новое название подборки (с эмодзи):'
+    : 'Новое описание: о чём подборка, до какого числа принимают заказы и т. п. Отправьте «-», чтобы убрать.';
+  await show(ctx, rich().plain(prompt).build(), new InlineKeyboard().text('✖️ Отмена', `mkc:c:${ctx.match[1]}`));
+});
+
+// Сообщить всем активным мастерам об открытой подборке — только по кнопке и с подтверждением
+makerPanelComposer.callbackQuery(/^mkc:nm:(\d+)$/, async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  const c = getCollection(Number(ctx.match[1]));
+  if (!c) return ctx.answerCallbackQuery();
+  if (!c.visible) {
+    await ctx.answerCallbackQuery({ text: 'Сначала покажите подборку покупателям — иначе мастера не смогут в неё добавить позиции', show_alert: true });
+    return;
+  }
+  await ctx.answerCallbackQuery();
+  const makers = getAllMakers().filter(m => m.status === 'active');
+  await show(ctx, rich().plain(`Отправить ${makers.length} мастерам сообщение:`).nl(2)
+    .rich(makerCollectionInvite(c).text, makerCollectionInvite(c).entities).build(),
+  new InlineKeyboard().text('📣 Отправить', `mkc:nmok:${c.id}`).text('Отмена', `mkc:c:${c.id}`));
+});
+
+function makerCollectionInvite(c) {
+  const r = rich().plain('🎁 Открыта подборка ').bold(c.title).nl(2);
+  if (c.description) r.rich(c.description, c.description_entities).nl(2);
+  r.plain('Добавьте свои позиции: кабинет → «✏️ Изменить позиции» → позиция → «🎁 Подборки». Сезонные позиции можно держать скрытыми и опубликовать к празднику.');
+  return r.build();
+}
+
+makerPanelComposer.callbackQuery(/^mkc:nmok:(\d+)$/, async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  const c = getCollection(Number(ctx.match[1]));
+  if (!c) return ctx.answerCallbackQuery();
+  await ctx.answerCallbackQuery({ text: '📣 Отправляю мастерам' });
+  const invite = makerCollectionInvite(c);
+  const kb = new InlineKeyboard().text('🧑‍🍳 Открыть кабинет', 'mkp:home');
+  let sent = 0;
+  for (const m of getAllMakers().filter(x => x.status === 'active')) {
+    try {
+      await ctx.api.sendMessage(m.user_id, invite.text, { entities: invite.entities, reply_markup: kb });
+      sent += 1;
+    } catch (err) {
+      console.error(`[Makers] Приглашение в подборку мастеру ${m.user_id} не отправлено:`, err.message);
+    }
+  }
+  const { built, kb: cardKb } = collectionAdminCard(c);
+  const done = rich().plain(`✅ Сообщение получили мастеров: ${sent}`).nl(2).rich(built.text, built.entities).build();
+  await show(ctx, done, cardKb);
+});
+
+makerPanelComposer.callbackQuery(/^mkc:del:(\d+)$/, async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  await ctx.answerCallbackQuery();
+  const c = getCollection(Number(ctx.match[1]));
+  if (!c) return;
+  await show(ctx, rich().bold(`🗑 Удалить подборку «${c.title}»?`).nl(2)
+    .plain('Позиции мастеров останутся у них в меню, пропадёт только сама подборка.').build(),
+  new InlineKeyboard().text('🗑 Да, удалить', `mkc:delok:${c.id}`).text('Отмена', `mkc:c:${c.id}`));
+});
+
+makerPanelComposer.callbackQuery(/^mkc:delok:(\d+)$/, async (ctx) => {
+  if (!(await adminOnly(ctx))) return;
+  deleteCollection(Number(ctx.match[1]));
+  await ctx.answerCallbackQuery({ text: '🗑 Подборка удалена' });
+  const { built, kb } = collectionsAdminView();
+  await show(ctx, built, kb);
 });
 
 // Обложка раздела «Домашнее и ручное»

@@ -1,6 +1,6 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { config, isAdmin } from '../../config.js';
-import { getAllMakers } from '../db/repositories/makers.js';
+import { getAllMakers, getVisibleCollections, getCollection } from '../db/repositories/makers.js';
 import {
   getAllPlaces,
   getActivePlaces,
@@ -333,28 +333,54 @@ adminComposer.command('broadcast', async (ctx) => {
     );
   }
 
-  const usersCount = getTotalUsersCount();
   const draftId = `draft_${Date.now()}`;
-  broadcastDrafts.set(draftId, { text: messageText, createdAt: Date.now() });
+  broadcastDrafts.set(draftId, { text: messageText, collectionId: null, createdAt: Date.now() });
 
-  const previewCard = (
+  const { text, keyboard } = broadcastPreview(draftId);
+  await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
+});
+
+// Предпросмотр рассылки: текст + по желанию кнопка «Открыть подборку» (выбирается из видимых подборок)
+function broadcastPreview(draftId) {
+  const draft = broadcastDrafts.get(draftId);
+  const usersCount = getTotalUsersCount();
+  const collection = draft.collectionId ? getCollection(draft.collectionId) : null;
+
+  const text = (
     `📢 *ПРЕДПРОСМОТР РАССЫЛКИ*\n\n` +
     `👥 *Получателей:* ${usersCount} чел. (все запустившие бота)\n\n` +
     `*Текст сообщения для жильцов:*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `${messageText}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `${draft.text}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🔘 *Кнопка под сообщением:* ${collection ? `«👀 Открыть подборку» → ${escapeMarkdown(collection.title)}` : 'без кнопки'}\n\n` +
     `Отправить это сообщение всем жильцам?`
   );
 
-  const keyboard = new InlineKeyboard()
+  const keyboard = new InlineKeyboard();
+  const collections = getVisibleCollections();
+  for (const c of collections) {
+    const on = draft.collectionId === c.id;
+    keyboard.text(`${on ? '☑️' : '⬜'} Кнопка: ${c.title}`, `admin:broadcast_col:${draftId}:${c.id}`).row();
+  }
+  if (collections.length && draft.collectionId) {
+    keyboard.text('⬜ Без кнопки', `admin:broadcast_col:${draftId}:0`).row();
+  }
+  keyboard
     .text(`🚀 Отправить всем (${usersCount} чел.)`, `admin:broadcast_send:${draftId}`).row()
     .text('❌ Отменить', `admin:broadcast_cancel:${draftId}`);
+  return { text, keyboard };
+}
 
-  await ctx.reply(previewCard, {
-    parse_mode: 'Markdown',
-    reply_markup: keyboard,
-  });
+adminComposer.callbackQuery(/^admin:broadcast_col:(draft_\d+):(\d+)$/, async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: '⛔ Доступ запрещён', show_alert: true });
+  const draft = broadcastDrafts.get(ctx.match[1]);
+  if (!draft) return ctx.answerCallbackQuery({ text: 'Срок действия черновика истёк', show_alert: true });
+  const id = Number(ctx.match[2]);
+  draft.collectionId = id && getCollection(id) ? id : null;
+  await ctx.answerCallbackQuery();
+  const { text, keyboard } = broadcastPreview(ctx.match[1]);
+  await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
 });
 
 // Подтверждение отправки рассылки
@@ -373,10 +399,14 @@ adminComposer.callbackQuery(/^admin:broadcast_send:(draft_\d+)$/, async (ctx) =>
   const userIds = getAllUserIds();
   let successCount = 0;
   let failCount = 0;
+  const collection = draft.collectionId ? getCollection(draft.collectionId) : null;
+  const replyMarkup = collection
+    ? new InlineKeyboard().text('👀 Открыть подборку', `mk:col:${collection.id}`)
+    : undefined;
 
   for (const uid of userIds) {
     try {
-      await ctx.api.sendMessage(uid, draft.text, { parse_mode: 'Markdown' });
+      await ctx.api.sendMessage(uid, draft.text, { parse_mode: 'Markdown', reply_markup: replyMarkup });
       successCount++;
     } catch {
       failCount++;

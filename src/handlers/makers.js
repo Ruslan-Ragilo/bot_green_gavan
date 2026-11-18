@@ -4,8 +4,10 @@
  * Заказов через бота нет: кнопка «Написать» ведёт в личку мастера.
  */
 import { Composer, InlineKeyboard } from 'grammy';
+import { isAdmin } from '../../config.js';
 import {
-  getActiveMakers, getMaker, getMakerItems, getMakerItem, getInStockItems, getSectionCover,
+  getActiveMakers, getMaker, getMakerItems as getAllMakerItems, getMakerItem, getInStockItems, getSectionCover,
+  getVisibleCollections, getCollection, getCollectionItems,
   isSubscribed, subscribe, unsubscribe,
 } from '../db/repositories/makers.js';
 import {
@@ -16,6 +18,9 @@ import { rich } from '../utils/richText.js';
 import { renderScreen } from '../utils/cleanChat.js';
 
 export const makersComposer = new Composer();
+
+// Покупатель видит только опубликованные позиции (скрытые мастер держит у себя, например сезонные)
+const getMakerItems = (makerId) => getAllMakerItems(makerId).filter(i => i.published);
 
 const MAX_LIST_BUTTONS = 60;
 
@@ -50,6 +55,10 @@ export async function showSection(ctx) {
     .plain('Заказ и оплата — напрямую у мастера: кнопка «Написать» откроет личные сообщения.');
 
   const kb = new InlineKeyboard();
+  // Тематические подборки — сверху, пока администратор их показывает
+  for (const c of getVisibleCollections().filter(c => c.items_count > 0)) {
+    kb.text(`${c.title} · ${c.items_count}`, `mk:col:${c.id}`).row();
+  }
   if (makers.length === 0) {
     r.nl(2).italic('Мастера скоро появятся.');
   } else {
@@ -164,6 +173,7 @@ function sortByCategory(items) {
 // Список, по которому листаются позиции, — тот, из которого покупатель открыл карточку
 function browseList(back, maker) {
   if (back === 'n') return sortByCategory(getInStockItems(staleBoundaryUtc()));
+  if (back.startsWith('c')) return getCollectionItems(Number(back.slice(1)));
   const items = getMakerItems(maker.id);
   if (back === 'a') return sortByCategory(items);
   const inStock = isStockFresh(maker) ? items.filter(i => i.in_stock) : [];
@@ -214,9 +224,10 @@ makersComposer.callbackQuery(/^mk:unsub:(\d+)$/, async (ctx) => {
 
 // ── Карточка позиции: фото-слайдер + пост мастера ─────────
 
-// back: m — страница мастера, a — всё меню, n — «Что есть сейчас»
+// back: m — страница мастера, a — всё меню, n — «Что есть сейчас», c<id> — подборка
 function backTarget(back, makerId) {
   if (back === 'n') return 'mk:now';
+  if (back.startsWith('c')) return `mk:col:${back.slice(1)}`;
   if (back === 'a') return `mk:all:${makerId}`;
   return `mk:m:${makerId}`;
 }
@@ -271,13 +282,14 @@ export function buildItemCard(item, maker, { photoIndex = 0, back = 'm', preview
   };
 }
 
-makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man])$/, async (ctx) => {
+makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man]|c\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
   const item = getMakerItem(Number(ctx.match[1]));
   const maker = item && getMaker(item.maker_id);
   if (!item || !maker || maker.status !== 'active') {
     return showSection(ctx);
   }
+  if (!item.published) return showMaker(ctx, maker.id); // мастер скрыл позицию
   const back = ctx.match[3];
   const { built, photo, keyboard } = buildItemCard(item, maker, {
     photoIndex: Number(ctx.match[2]), back,
@@ -299,4 +311,41 @@ makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man])$/, async (ctx) => {
   if (back !== 'm') keyboard.text(`👩‍🍳 Все позиции мастера`, `mk:m:${maker.id}`).row();
   keyboard.text('◀️ К списку', backTarget(back, maker.id));
   await show(ctx, built, keyboard, photo ? { photo } : {});
+});
+
+// ── Тематическая подборка ─────────────────────────────────
+
+makersComposer.callbackQuery(/^mk:col:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const collection = getCollection(Number(ctx.match[1]));
+  // Скрытую подборку видит только администратор (предпросмотр перед показом)
+  if (!collection || (!collection.visible && !isAdmin(ctx.from.id))) return showSection(ctx);
+
+  const items = getCollectionItems(collection.id);
+  const r = rich().bold(collection.title).nl(2);
+  if (collection.description) r.rich(collection.description, collection.description_entities).nl(2);
+  if (!collection.visible) r.italic('Подборка скрыта — её видите только вы.').nl(2);
+
+  const kb = new InlineKeyboard();
+  if (items.length === 0) {
+    r.plain('Мастера ещё не добавили сюда позиции.');
+  } else {
+    // Перечень по мастерам, кнопки — сразу к позициям
+    const byMaker = new Map();
+    for (const item of items) {
+      if (!byMaker.has(item.maker_name)) byMaker.set(item.maker_name, []);
+      byMaker.get(item.maker_name).push(item);
+    }
+    for (const [makerName, list] of byMaker) {
+      r.bold(`👩‍🍳 ${makerName}`).nl();
+      for (const item of list) r.plain(`• ${itemButtonLabel(item)}`).nl();
+      r.nl();
+    }
+    r.italic('Нажмите на позицию — покажу фото и описание. Заказ — напрямую у мастера.');
+    for (const item of items.slice(0, MAX_LIST_BUTTONS)) {
+      kb.text(`${item.title} · ${item.maker_name}`, `mk:i:${item.id}:0:c${collection.id}`).row();
+    }
+  }
+  kb.text('◀️ Назад', 'mk:home');
+  await show(ctx, r.build(4096), kb);
 });

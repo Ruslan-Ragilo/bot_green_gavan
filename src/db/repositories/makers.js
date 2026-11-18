@@ -27,6 +27,7 @@ function mapItem(row) {
     photos: parseJson(row.photos, []),
     variants: parseJson(row.variants, []).map(v => ({ ...v, in_stock: Boolean(v.in_stock) })),
     in_stock: Boolean(row.in_stock),
+    published: row.published === undefined ? true : Boolean(row.published),
   };
 }
 
@@ -44,8 +45,8 @@ export function getMakerByUser(userId) {
 export function getActiveMakers() {
   return db.prepare(`
     SELECT m.*,
-      (SELECT COUNT(*) FROM maker_items i WHERE i.maker_id = m.id) AS items_count,
-      (SELECT COUNT(*) FROM maker_items i WHERE i.maker_id = m.id AND i.in_stock = 1) AS stock_count
+      (SELECT COUNT(*) FROM maker_items i WHERE i.maker_id = m.id AND i.published = 1) AS items_count,
+      (SELECT COUNT(*) FROM maker_items i WHERE i.maker_id = m.id AND i.published = 1 AND i.in_stock = 1) AS stock_count
     FROM makers m
     WHERE m.status = 'active'
     ORDER BY m.stock_updated_at IS NULL, m.stock_updated_at DESC, m.id
@@ -93,6 +94,7 @@ export function resubmitMaker(id, { name, about, aboutEntities, contact }) {
 
 // Позиции и подписки удаляются каскадом (ON DELETE CASCADE); на всякий случай чистим их явно
 export const deleteMaker = db.transaction((id) => {
+  db.prepare('DELETE FROM maker_collection_items WHERE item_id IN (SELECT id FROM maker_items WHERE maker_id = ?)').run(id);
   db.prepare('DELETE FROM maker_items WHERE maker_id = ?').run(id);
   db.prepare('DELETE FROM maker_subscriptions WHERE maker_id = ?').run(id);
   db.prepare('DELETE FROM makers WHERE id = ?').run(id);
@@ -128,7 +130,7 @@ export function getInStockItems(sinceUtc) {
     SELECT i.*, m.name AS maker_name
     FROM maker_items i
     JOIN makers m ON m.id = i.maker_id
-    WHERE m.status = 'active' AND i.in_stock = 1
+    WHERE m.status = 'active' AND i.in_stock = 1 AND i.published = 1
       AND m.stock_updated_at IS NOT NULL AND m.stock_updated_at >= ?
     ORDER BY m.stock_updated_at DESC, i.id
   `).all(sinceUtc).map(mapItem);
@@ -242,4 +244,103 @@ export function countSubscribers(makerId) {
 export function findUserIdByUsername(username) {
   const row = db.prepare('SELECT telegram_id FROM users WHERE lower(username) = lower(?)').get(username.replace(/^@/, ''));
   return row?.telegram_id || null;
+}
+
+// ── Публикация позиции ────────────────────────────────────
+
+export function toggleMakerItemPublished(id) {
+  db.prepare(`UPDATE maker_items SET published = 1 - published, updated_at = datetime('now') WHERE id = ?`).run(id);
+  return getMakerItem(id);
+}
+
+// ── Тематические подборки ─────────────────────────────────
+
+function mapCollection(row) {
+  if (!row) return null;
+  return { ...row, description_entities: parseJson(row.description_entities, []), visible: Boolean(row.visible) };
+}
+
+// Позиции подборки, которые видят покупатели: опубликованные, у активных мастеров
+const VISIBLE_ITEMS_SQL = `
+  FROM maker_collection_items ci
+  JOIN maker_items i ON i.id = ci.item_id
+  JOIN makers m ON m.id = i.maker_id
+  WHERE ci.collection_id = c.id AND i.published = 1 AND m.status = 'active'`;
+
+export function getCollection(id) {
+  return mapCollection(db.prepare(`
+    SELECT c.*, (SELECT COUNT(*) ${VISIBLE_ITEMS_SQL}) AS items_count FROM maker_collections c WHERE c.id = ?
+  `).get(id));
+}
+
+export function getAllCollections() {
+  return db.prepare(`
+    SELECT c.*, (SELECT COUNT(*) ${VISIBLE_ITEMS_SQL}) AS items_count FROM maker_collections c ORDER BY c.id DESC
+  `).all().map(mapCollection);
+}
+
+export function getVisibleCollections() {
+  return getAllCollections().filter(c => c.visible);
+}
+
+export function createCollection({ title, description = '', descriptionEntities = [] }) {
+  const info = db.prepare('INSERT INTO maker_collections (title, description, description_entities) VALUES (?, ?, ?)')
+    .run(title, description, toJson(descriptionEntities));
+  return getCollection(info.lastInsertRowid);
+}
+
+export function updateCollection(id, { title, description, descriptionEntities }) {
+  const current = getCollection(id);
+  if (!current) return null;
+  db.prepare('UPDATE maker_collections SET title = ?, description = ?, description_entities = ? WHERE id = ?').run(
+    title ?? current.title,
+    description ?? current.description,
+    descriptionEntities !== undefined ? toJson(descriptionEntities) : toJson(current.description_entities),
+    id
+  );
+  return getCollection(id);
+}
+
+export function toggleCollectionVisible(id) {
+  db.prepare('UPDATE maker_collections SET visible = 1 - visible WHERE id = ?').run(id);
+  return getCollection(id);
+}
+
+export function deleteCollection(id) {
+  db.prepare('DELETE FROM maker_collection_items WHERE collection_id = ?').run(id);
+  db.prepare('DELETE FROM maker_collections WHERE id = ?').run(id);
+}
+
+// Позиции подборки для покупателя: по мастерам, внутри — по порядку добавления позиций
+export function getCollectionItems(collectionId) {
+  return db.prepare(`
+    SELECT i.*, m.name AS maker_name
+    FROM maker_collection_items ci
+    JOIN maker_items i ON i.id = ci.item_id
+    JOIN makers m ON m.id = i.maker_id
+    WHERE ci.collection_id = ? AND i.published = 1 AND m.status = 'active'
+    ORDER BY m.stock_updated_at IS NULL, m.stock_updated_at DESC, m.id, i.id
+  `).all(collectionId).map(mapItem);
+}
+
+export function getItemCollectionIds(itemId) {
+  return db.prepare('SELECT collection_id FROM maker_collection_items WHERE item_id = ?').all(itemId).map(r => r.collection_id);
+}
+
+export function toggleItemInCollection(itemId, collectionId) {
+  const exists = db.prepare('SELECT 1 FROM maker_collection_items WHERE item_id = ? AND collection_id = ?').get(itemId, collectionId);
+  if (exists) {
+    db.prepare('DELETE FROM maker_collection_items WHERE item_id = ? AND collection_id = ?').run(itemId, collectionId);
+  } else {
+    db.prepare('INSERT INTO maker_collection_items (collection_id, item_id) VALUES (?, ?)').run(collectionId, itemId);
+  }
+  return !exists;
+}
+
+// Сколько позиций мастера уже в подборке (для подсказки в кабинете)
+export function countMakerItemsInCollection(makerId, collectionId) {
+  return db.prepare(`
+    SELECT COUNT(*) AS c FROM maker_collection_items ci JOIN maker_items i ON i.id = ci.item_id
+    WHERE ci.collection_id = ? AND i.maker_id = ?
+  `).get(collectionId, makerId).c;
 }
