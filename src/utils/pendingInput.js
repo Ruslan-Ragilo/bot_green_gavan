@@ -7,34 +7,71 @@
  * Обработчики кнопок, которые запрашивают ввод, выставляют состояние уже после сброса.
  */
 
-const pending = new Map(); // userId -> { type, ...data }
+import { db } from '../db/index.js';
 
-// Состояние устаревает, если жилец так ничего и не написал
+// Таблица для сохранения состояния ввода между перезапусками процесса
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pending_user_inputs (
+    user_id INTEGER PRIMARY KEY,
+    type TEXT NOT NULL,
+    data TEXT,
+    created_at INTEGER NOT NULL
+  );
+`);
+
+const stmtGet = db.prepare('SELECT type, data, created_at FROM pending_user_inputs WHERE user_id = ?');
+const stmtSet = db.prepare(`
+  INSERT INTO pending_user_inputs (user_id, type, data, created_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(user_id) DO UPDATE SET
+    type = excluded.type,
+    data = excluded.data,
+    created_at = excluded.created_at
+`);
+const stmtDel = db.prepare('DELETE FROM pending_user_inputs WHERE user_id = ?');
+
 const TTL_MS = 30 * 60 * 1000;
 
 export function setPendingInput(userId, type, data = {}) {
-  pending.set(userId, { type, ...data, createdAt: Date.now() });
+  try {
+    stmtSet.run(userId, type, JSON.stringify(data), Date.now());
+  } catch (err) {
+    console.error('[PendingInput] set error:', err.message);
+  }
 }
 
 export function getPendingInput(userId, type) {
-  const state = pending.get(userId);
-  if (!state) return null;
-  if (Date.now() - state.createdAt > TTL_MS) {
-    pending.delete(userId);
+  try {
+    const row = stmtGet.get(userId);
+    if (!row) return null;
+    if (Date.now() - row.created_at > TTL_MS) {
+      stmtDel.run(userId);
+      return null;
+    }
+    if (row.type !== type) return null;
+    let data = {};
+    try { data = JSON.parse(row.data || '{}'); } catch (_) {}
+    return { type: row.type, ...data };
+  } catch (err) {
+    console.error('[PendingInput] get error:', err.message);
     return null;
   }
-  return state.type === type ? state : null;
 }
 
 export function clearPendingInput(userId) {
-  pending.delete(userId);
+  try {
+    stmtDel.run(userId);
+  } catch (err) {
+    console.error('[PendingInput] delete error:', err.message);
+  }
 }
 
 // Middleware: любая кнопка или команда означает, что жилец ушёл с экрана ввода
 export function resetPendingInputMiddleware(ctx, next) {
   const userId = ctx.from?.id;
   if (userId && (ctx.callbackQuery || ctx.message?.text?.startsWith('/'))) {
-    pending.delete(userId);
+    clearPendingInput(userId);
   }
   return next();
 }
+

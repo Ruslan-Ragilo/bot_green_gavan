@@ -781,11 +781,18 @@ async function handleTextInput(ctx, next) {
     clearPendingInput(userId);
     const contact = ctx.from.username ? `@${ctx.from.username}` : null;
     const data = { name: aboutState.name, about: ctx.message.text, aboutEntities: entities, contact };
-    const existing = getMakerByUser(userId);
-    const maker = existing ? resubmitMaker(existing.id, data) : createMaker({ userId, ...data });
-    await notifyAdminsAboutApplication(ctx.api, maker, ctx.from);
+    console.log(`📝 [Maker Application] Получено описание от user ${userId} (${aboutState.name}): ${ctx.message.text.slice(0, 50)}...`);
+    try {
+      const existing = getMakerByUser(userId);
+      const maker = existing ? resubmitMaker(existing.id, data) : createMaker({ userId, ...data });
+      await notifyAdminsAboutApplication(ctx.api, maker, ctx.from);
+      console.log(`✅ [Maker Application] Заявка мастера #${maker.id} (${maker.name}) успешно создана и отправлена админам.`);
+    } catch (err) {
+      console.error('❌ [Maker Application] Ошибка сохранения заявки:', err);
+    }
     return showPanel(ctx);
   }
+
 
   const profileState = getPendingInput(userId, 'maker_profile');
   if (profileState) {
