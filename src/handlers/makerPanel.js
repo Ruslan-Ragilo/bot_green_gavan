@@ -1010,19 +1010,51 @@ async function handleTextInput(ctx, next) {
 
 // ── Управление позициями ──────────────────────────────────
 
-makerPanelComposer.callbackQuery('mkp:items', async (ctx) => {
-  await ctx.answerCallbackQuery();
+// В Telegram не больше 100 кнопок на сообщение: стрелки у каждой строки (3 кнопки) — до 30 позиций,
+// при большем числе — порядок через отдельный экран «↕️ Порядок»
+const INLINE_ARROWS_MAX = 30;
+
+async function showItems(ctx) {
   const maker = ownMaker(ctx);
   if (!maker) return showPanel(ctx);
+  const items = getMakerItems(maker.id).slice(0, MAX_ITEMS);
+  const arrows = items.length > 1 && items.length <= INLINE_ARROWS_MAX;
   const kb = new InlineKeyboard();
-  for (const item of getMakerItems(maker.id).slice(0, MAX_ITEMS)) {
-    kb.text(`${item.published ? '' : '🙈 '}${itemButtonLabel(item)}`, `mkp:it:${item.id}`).row();
-  }
+  items.forEach((item, idx) => {
+    const label = `${item.published ? '' : '🙈 '}${item.title}`;
+    if (!arrows) {
+      kb.text(`${item.published ? '' : '🙈 '}${itemButtonLabel(item)}`, `mkp:it:${item.id}`).row();
+      return;
+    }
+    // Крайние стрелки неактивны: первую некуда поднять, последнюю — опустить
+    kb.text(idx === 0 ? '·' : '⬆️', idx === 0 ? 'noop' : `mkp:mi:${item.id}:u`)
+      .text(label, `mkp:it:${item.id}`)
+      .text(idx === items.length - 1 ? '·' : '⬇️', idx === items.length - 1 ? 'noop' : `mkp:mi:${item.id}:d`)
+      .row();
+  });
   kb.text('➕ Добавить', 'mkp:add');
-  if (getMakerItems(maker.id).length > 1) kb.text('↕️ Порядок', 'mkp:ord:0');
+  if (items.length > INLINE_ARROWS_MAX) kb.text('↕️ Порядок', 'mkp:ord:0');
   kb.row().text('📖 Как оформить пост', 'mkp:guide:h').row();
   kb.text('◀️ Назад', 'mkp:home');
-  await show(ctx, rich().bold('📋 Мои позиции').nl(2).plain('Нажмите на позицию, чтобы изменить её.').build(), kb);
+  const r = rich().bold('📋 Мои позиции').nl(2).plain('Нажмите на позицию, чтобы изменить её.');
+  if (arrows) r.nl().plain('⬆️ ⬇️ — поменять порядок: в нём позиции видят покупатели.');
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.callbackQuery('mkp:items', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await showItems(ctx);
+});
+
+makerPanelComposer.callbackQuery(/^mkp:mi:(\d+):([ud])$/, async (ctx) => {
+  const own = ownItem(ctx, Number(ctx.match[1]));
+  if (!own) {
+    await ctx.answerCallbackQuery();
+    return showPanel(ctx);
+  }
+  moveMakerItem(own.item.id, ctx.match[2] === 'u' ? -1 : 1);
+  await ctx.answerCallbackQuery();
+  await showItems(ctx);
 });
 
 // Порядок позиций: выбираете позицию, двигаете её ⬆️/⬇️ — в таком порядке её видят покупатели
