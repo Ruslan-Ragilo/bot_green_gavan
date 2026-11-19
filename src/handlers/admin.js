@@ -29,7 +29,7 @@ function adminMenuKeyboard() {
     kb.text('⏸ Приём заказов (Пауза/Пуск)', 'admin:places_pause').row()
       .text('🚫 Стоп-лист меню', 'admin:stop_list').row();
   }
-  kb.text('🧺 Мастера', 'mka:list').row()
+  kb.text('🧺 Мастера', 'mka:list').text('📊 Аналитика мастеров', 'mka:an:d7').row()
     .text('🚌 Обновить расписание транспорта', 'admin:update_transport').row()
     .text('📢 Рассылка жильцам ЖК', 'admin:broadcast_prompt');
   if (config.preordersEnabled) kb.row().text('🔍 Найти заказ по номеру', 'admin:find_prompt');

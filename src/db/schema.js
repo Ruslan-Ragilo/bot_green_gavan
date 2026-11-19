@@ -199,6 +199,17 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value TEXT
 );
 
+-- Аналитика мастеров: кто открыл карточку мастера, позицию, нажал «Написать»
+CREATE TABLE IF NOT EXISTS maker_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  maker_id INTEGER NOT NULL,
+  item_id INTEGER,
+  user_id INTEGER NOT NULL,
+  type TEXT NOT NULL,              -- view_maker | view_item | contact
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_maker_events ON maker_events(maker_id, type, created_at);
+
 -- Подписки жильцов на мастеров (уведомления о наличии)
 CREATE TABLE IF NOT EXISTS maker_subscriptions (
   user_id INTEGER NOT NULL,

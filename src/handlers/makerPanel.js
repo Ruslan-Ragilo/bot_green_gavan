@@ -23,6 +23,10 @@ import {
 import { buildItemCard } from './makers.js';
 import { syncMakerCommands } from '../services/botCommands.js';
 import { rich, cleanEntities } from '../utils/richText.js';
+import { plural } from '../utils/text.js';
+import {
+  EVENT, PERIODS, periodSince, getMakerCounts, getMakerTopItems, getNewSubscribers, getTotalCounts,
+} from '../db/repositories/makerStats.js';
 import { renderScreen } from '../utils/cleanChat.js';
 import { setPendingInput, getPendingInput, clearPendingInput } from '../utils/pendingInput.js';
 
@@ -119,6 +123,7 @@ export async function showPanel(ctx) {
   kb.text('➕ Добавить позицию', 'mkp:add').text('📖 Как оформить', 'mkp:guide:h').row();
   if (items.length > 0) kb.text('✏️ Изменить позиции', 'mkp:items').row();
   kb.text('👤 Описание и контакт', 'mkp:profile').text('👀 Как видят', `mk:m:${maker.id}`).row();
+  kb.text('📊 Статистика', 'mkp:st:d7').row();
   kb.text('◀️ Назад', 'mk:home');
   return show(ctx, r.build(), kb);
 }
@@ -438,6 +443,105 @@ makerPanelComposer.callbackQuery('mkp:notify_go', async (ctx) => {
   sendMakerNotification(ctx.api, maker, highlightIds)
     .then((sent) => console.log(`[Makers] «${maker.name}»: уведомление получили ${sent} подписчиков`))
     .catch((err) => console.error('[Makers] Ошибка рассылки:', err));
+});
+
+// ── Статистика ────────────────────────────────────────────
+
+const PEOPLE = ['человек', 'человека', 'человек'];
+const TIMES = ['раз', 'раза', 'раз'];
+
+function periodRow(kb, current, prefix) {
+  for (const [key, p] of Object.entries(PERIODS)) {
+    kb.text(key === current ? `• ${p.title} •` : p.title, `${prefix}:${key}`);
+  }
+  return kb.row();
+}
+
+function buildMakerStats(maker, periodKey) {
+  const since = periodSince(periodKey);
+  const c = getMakerCounts(maker.id, since);
+  const top = getMakerTopItems(maker.id, since);
+  const subsTotal = countSubscribers(maker.id);
+  const subsNew = getNewSubscribers(maker.id, since);
+
+  const r = rich().bold(`📊 Статистика — ${maker.name}`).nl()
+    .italic(`Период: ${PERIODS[periodKey].title}`).nl(2);
+  const line = (icon, label, v) => r.plain(`${icon} ${label}: `).bold(plural(v.people, PEOPLE))
+    .plain(v.total > v.people ? ` (${plural(v.total, TIMES)})` : '').nl();
+  line('👀', 'Открыли карточку', c[EVENT.VIEW_MAKER]);
+  line('🍽', 'Смотрели позиции', c[EVENT.VIEW_ITEM]);
+  line('✉️', 'Нажали «Написать»', c[EVENT.CONTACT]);
+  r.plain('🔔 Подписчиков: ').bold(String(subsTotal)).plain(subsNew ? ` (новых за период: +${subsNew})` : '').nl();
+
+  if (top.length) {
+    r.nl().bold('🏆 Чаще всего смотрят:').nl();
+    top.forEach((t, i) => r.plain(`${i + 1}. ${t.title} — ${plural(t.people, PEOPLE)}`).nl());
+  }
+  r.nl().italic('Считаются только покупатели: просмотры самого мастера и администратора не учитываются. Один человек в каждой строке считается один раз.');
+  return r.build();
+}
+
+async function showOwnStats(ctx, periodKey) {
+  const maker = ownMaker(ctx);
+  if (!maker) return showPanel(ctx);
+  const kb = periodRow(new InlineKeyboard(), periodKey, 'mkp:st').text('◀️ В кабинет', 'mkp:home');
+  return show(ctx, buildMakerStats(maker, periodKey), kb);
+}
+
+makerPanelComposer.callbackQuery(/^mkp:st:(d1|d7|d30|all)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await showOwnStats(ctx, ctx.match[1]);
+});
+
+makerPanelComposer.command('stats', async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  if (!ownMaker(ctx)) return isAdmin(ctx.from.id) ? showAnalytics(ctx, 'd7') : showPanel(ctx);
+  await showOwnStats(ctx, 'd7');
+});
+
+// Админ: сводка по всем мастерам
+async function showAnalytics(ctx, periodKey) {
+  const since = periodSince(periodKey);
+  const total = getTotalCounts(since);
+  const makers = getAllMakers().filter(m => m.status === 'active');
+  const rows = makers.map(m => ({ m, c: getMakerCounts(m.id, since), subs: countSubscribers(m.id) }))
+    .sort((a, b) => b.c[EVENT.VIEW_MAKER].people - a.c[EVENT.VIEW_MAKER].people);
+
+  const r = rich().bold('📊 Аналитика мастеров').nl().italic(`Период: ${PERIODS[periodKey].title}`).nl(2)
+    .bold('Весь раздел').plain(' (уникальные люди):').nl()
+    .plain(`👀 Открывали карточки мастеров: ${total[EVENT.VIEW_MAKER].people}`).nl()
+    .plain(`🍽 Смотрели позиции: ${total[EVENT.VIEW_ITEM].people}`).nl()
+    .plain(`✉️ Нажимали «Написать»: ${total[EVENT.CONTACT].people}`).nl(2)
+    .bold('По мастерам').plain(' — 👀 карточка / 🍽 позиции / ✉️ написать / 🔔 подписчики:').nl();
+  if (rows.length === 0) r.italic('Активных мастеров нет.');
+  for (const { m, c, subs } of rows) {
+    r.plain(`• ${m.name} — ${c[EVENT.VIEW_MAKER].people} / ${c[EVENT.VIEW_ITEM].people} / ${c[EVENT.CONTACT].people} / ${subs}`).nl();
+  }
+
+  const kb = periodRow(new InlineKeyboard(), periodKey, 'mka:an');
+  for (const { m } of rows.slice(0, 40)) kb.text(`📊 ${m.name}`, `mka:st:${m.id}:${periodKey}`).row();
+  kb.text('◀️ В админ-панель', 'admin:main');
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.command('analytics', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) return;
+  await showAnalytics(ctx, 'd7');
+});
+
+makerPanelComposer.callbackQuery(/^mka:an:(d1|d7|d30|all)$/, async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCallbackQuery();
+  await ctx.answerCallbackQuery();
+  await showAnalytics(ctx, ctx.match[1]);
+});
+
+makerPanelComposer.callbackQuery(/^mka:st:(\d+):(d1|d7|d30|all)$/, async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCallbackQuery();
+  await ctx.answerCallbackQuery();
+  const maker = getMaker(Number(ctx.match[1]));
+  if (!maker) return showAnalytics(ctx, ctx.match[2]);
+  const kb = periodRow(new InlineKeyboard(), ctx.match[2], `mka:st:${maker.id}`).text('◀️ Ко всем мастерам', `mka:an:${ctx.match[2]}`);
+  await show(ctx, buildMakerStats(maker, ctx.match[2]), kb);
 });
 
 // ── Гайд «Как оформить пост» ──────────────────────────────
@@ -1078,6 +1182,7 @@ function makersAdminView() {
   r.nl().plain(`🖼 Обложка раздела: ${getSectionCover() ? 'задана' : 'не задана — раздел показывается текстом'}`).nl();
   r.nl().italic('Передать карточку: /maker_owner <номер> @username (мастер должен хотя бы раз нажать /start).');
   kb.text('🎁 Подборки', 'mkc:list').text('🖼 Обложка раздела', 'mka:cover').row();
+  kb.text('📊 Аналитика мастеров', 'mka:an:d7').row();
   kb.text('◀️ В админ-панель', 'admin:main');
   return { built: r.build(), kb };
 }

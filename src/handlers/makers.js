@@ -15,6 +15,7 @@ import {
   itemButtonLabel, contactUrl, variantsSummary, variantNameInline,
 } from '../services/makers.js';
 import { rich } from '../utils/richText.js';
+import { logMakerEvent, EVENT } from '../db/repositories/makerStats.js';
 import { renderScreen } from '../utils/cleanChat.js';
 
 export const makersComposer = new Composer();
@@ -40,9 +41,16 @@ function showWithCover(ctx, r, keyboard, cover) {
   return show(ctx, r.build(4096), keyboard);
 }
 
-function writeButton(keyboard, maker) {
-  const url = contactUrl(maker.contact);
-  if (url) keyboard.url('✉️ Написать мастеру', url).row();
+// Аналитика: действия самого мастера и администратора не считаем
+function track(ctx, maker, type, itemId = null) {
+  const userId = ctx.from?.id;
+  if (!userId || userId === maker.user_id || isAdmin(userId)) return;
+  logMakerEvent({ makerId: maker.id, itemId, userId, type });
+}
+
+// «Написать мастеру» — сначала кнопка бота (чтобы посчитать переход), она превращается в ссылку на личку
+function writeButton(keyboard, maker, itemId = 0) {
+  if (contactUrl(maker.contact)) keyboard.text('✉️ Написать мастеру', `mk:w:${maker.id}:${itemId}`).row();
 }
 
 // ── Раздел ────────────────────────────────────────────────
@@ -187,12 +195,35 @@ function categoryIndex(item) {
 
 makersComposer.callbackQuery(/^mk:m:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
+  const maker = getMaker(Number(ctx.match[1]));
+  if (maker?.status === 'active') track(ctx, maker, EVENT.VIEW_MAKER);
   await showMaker(ctx, Number(ctx.match[1]));
 });
 
 makersComposer.callbackQuery(/^mk:all:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
+  const maker = getMaker(Number(ctx.match[1]));
+  if (maker?.status === 'active') track(ctx, maker, EVENT.VIEW_MAKER);
   await showMaker(ctx, Number(ctx.match[1]), { full: true });
+});
+
+// Нажали «Написать мастеру»: считаем переход и меняем кнопку на ссылку в личку (без нового сообщения)
+makersComposer.callbackQuery(/^mk:w:(\d+):(\d+)$/, async (ctx) => {
+  const maker = getMaker(Number(ctx.match[1]));
+  const url = maker && maker.status === 'active' ? contactUrl(maker.contact) : null;
+  if (!url) {
+    await ctx.answerCallbackQuery({ text: 'Контакт мастера сейчас недоступен' });
+    return;
+  }
+  track(ctx, maker, EVENT.CONTACT, Number(ctx.match[2]) || null);
+  await ctx.answerCallbackQuery({ text: '👇 Нажмите «Открыть чат» — откроется личка мастера' });
+  const rows = ctx.callbackQuery.message?.reply_markup?.inline_keyboard;
+  if (rows) {
+    const updated = rows.map(row => row.map(b => (b.callback_data === ctx.callbackQuery.data
+      ? { text: '💬 Открыть чат с мастером', url }
+      : b)));
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: updated } }).catch(() => {});
+  }
 });
 
 makersComposer.callbackQuery(/^mk:sub:(\d+):([ma])$/, async (ctx) => {
@@ -290,6 +321,7 @@ makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man]|c\d+)$/, async (ctx) => {
     return showSection(ctx);
   }
   if (!item.published) return showMaker(ctx, maker.id); // мастер скрыл позицию
+  if (Number(ctx.match[2]) === 0) track(ctx, maker, EVENT.VIEW_ITEM, item.id); // листание фото не считаем
   const back = ctx.match[3];
   const { built, photo, keyboard } = buildItemCard(item, maker, {
     photoIndex: Number(ctx.match[2]), back,
@@ -307,7 +339,7 @@ makersComposer.callbackQuery(/^mk:i:(\d+):(\d+):([man]|c\d+)$/, async (ctx) => {
       .text('След. ➡️', `mk:i:${next.id}:0:${back}`)
       .row();
   }
-  writeButton(keyboard, maker);
+  writeButton(keyboard, maker, item.id);
   if (back !== 'm') keyboard.text(`👩‍🍳 Все позиции мастера`, `mk:m:${maker.id}`).row();
   keyboard.text('◀️ К списку', backTarget(back, maker.id));
   await show(ctx, built, keyboard, photo ? { photo } : {});

@@ -16,6 +16,7 @@ export const USER_COMMANDS = [
 export const MAKER_COMMANDS = [
   { command: 'start', description: '🏠 Главное меню' },
   { command: 'master', description: '🧑‍🍳 Кабинет мастера: наличие и позиции' },
+  { command: 'stats', description: '📊 Моя статистика: просмотры и переходы' },
   { command: 'transport', description: '🚌 Расписание транспорта' },
   { command: 'support', description: '❤️ Поддержка проекта и связь' },
 ];
@@ -24,6 +25,7 @@ export const ADMIN_COMMANDS = [
   { command: 'admin', description: '👑 Панель администратора' },
   { command: 'start', description: '🏠 Главное меню' },
   { command: 'makers', description: '🧺 Мастера: заявки, скрыть/показать' },
+  { command: 'analytics', description: '📊 Аналитика мастеров' },
   { command: 'master', description: '🧑‍🍳 Кабинет мастера' },
   { command: 'transport', description: '🚌 Расписание транспорта' },
   { command: 'broadcast', description: '📢 Рассылка жильцам ЖК' },
