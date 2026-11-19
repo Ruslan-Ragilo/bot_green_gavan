@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS maker_items (
   variants TEXT,                   -- JSON: [{ name, price, in_stock }] — начинки/варианты внутри одного поста
   in_stock INTEGER NOT NULL DEFAULT 1,
   published INTEGER NOT NULL DEFAULT 1, -- 0 — мастер скрыл позицию (например, сезонную), покупатели её не видят
+  sort_order INTEGER,              -- порядок в меню мастера (мастер двигает ⬆️/⬇️)
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

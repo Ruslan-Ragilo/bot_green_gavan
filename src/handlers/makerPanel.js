@@ -13,7 +13,7 @@ import {
   toggleMakerItemStock, deleteMakerItem, touchMakerStock, markMakerNotified,
   getSubscriberIds, countSubscribers, unsubscribe, findUserIdByUsername, deleteMaker,
   getSectionCover, setSectionCover, setVariantStock, clearVariants,
-  toggleMakerItemPublished, getAllCollections, getVisibleCollections, getCollection, createCollection, updateCollection,
+  toggleMakerItemPublished, moveMakerItem, getAllCollections, getVisibleCollections, getCollection, createCollection, updateCollection,
   toggleCollectionVisible, deleteCollection, getItemCollectionIds, toggleItemInCollection, countMakerItemsInCollection,
 } from '../db/repositories/makers.js';
 import {
@@ -994,8 +994,52 @@ makerPanelComposer.callbackQuery('mkp:items', async (ctx) => {
   for (const item of getMakerItems(maker.id).slice(0, MAX_ITEMS)) {
     kb.text(`${item.published ? '' : '🙈 '}${itemButtonLabel(item)}`, `mkp:it:${item.id}`).row();
   }
+  if (getMakerItems(maker.id).length > 1) kb.text('↕️ Изменить порядок', 'mkp:ord:0').row();
   kb.text('◀️ В кабинет', 'mkp:home');
   await show(ctx, rich().bold('✏️ Изменить позиции').nl(2).plain('Выберите позицию:').build(), kb);
+});
+
+// Порядок позиций: выбираете позицию, двигаете её ⬆️/⬇️ — в таком порядке её видят покупатели
+async function showOrder(ctx, selectedId) {
+  const maker = ownMaker(ctx);
+  if (!maker) return showPanel(ctx);
+  const items = getMakerItems(maker.id);
+  const selected = items.find(i => i.id === selectedId);
+
+  const r = rich().bold('↕️ Порядок позиций').nl(2);
+  if (selected) {
+    r.plain('Двигайте ').bold(selected.title).plain(' кнопками ⬆️ / ⬇️. Можно выбрать другую позицию.');
+  } else {
+    r.plain('Нажмите на позицию, которую хотите переместить. В этом порядке её увидят покупатели.');
+  }
+
+  const kb = new InlineKeyboard();
+  if (selected) {
+    kb.text('⬆️ Выше', `mkp:mv:${selected.id}:u`).text('⬇️ Ниже', `mkp:mv:${selected.id}:d`).row();
+  }
+  items.slice(0, MAX_ITEMS).forEach((item, idx) => {
+    const mark = item.id === selectedId ? '👉 ' : `${idx + 1}. `;
+    kb.text(`${mark}${item.published ? '' : '🙈 '}${item.title}`, `mkp:ord:${item.id}`).row();
+  });
+  kb.text('✅ Готово', 'mkp:items');
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.callbackQuery(/^mkp:ord:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const id = Number(ctx.match[1]);
+  await showOrder(ctx, id && ownItem(ctx, id) ? id : 0);
+});
+
+makerPanelComposer.callbackQuery(/^mkp:mv:(\d+):([ud])$/, async (ctx) => {
+  const own = ownItem(ctx, Number(ctx.match[1]));
+  if (!own) {
+    await ctx.answerCallbackQuery();
+    return showPanel(ctx);
+  }
+  const moved = moveMakerItem(own.item.id, ctx.match[2] === 'u' ? -1 : 1);
+  await ctx.answerCallbackQuery(moved ? {} : { text: ctx.match[2] === 'u' ? 'Позиция уже первая' : 'Позиция уже последняя' });
+  await showOrder(ctx, own.item.id);
 });
 
 async function showItemManage(ctx, itemId, { justSaved = false } = {}) {

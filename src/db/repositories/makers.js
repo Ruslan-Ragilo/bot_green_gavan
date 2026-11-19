@@ -121,7 +121,7 @@ export function getMakerItem(id) {
 }
 
 export function getMakerItems(makerId) {
-  return db.prepare('SELECT * FROM maker_items WHERE maker_id = ? ORDER BY id').all(makerId).map(mapItem);
+  return db.prepare('SELECT * FROM maker_items WHERE maker_id = ? ORDER BY sort_order, id').all(makerId).map(mapItem);
 }
 
 // Всё, что сейчас в наличии у активных мастеров, обновлявших наличие не раньше sinceUtc
@@ -132,7 +132,7 @@ export function getInStockItems(sinceUtc) {
     JOIN makers m ON m.id = i.maker_id
     WHERE m.status = 'active' AND i.in_stock = 1 AND i.published = 1
       AND m.stock_updated_at IS NOT NULL AND m.stock_updated_at >= ?
-    ORDER BY m.stock_updated_at DESC, i.id
+    ORDER BY m.stock_updated_at DESC, i.sort_order, i.id
   `).all(sinceUtc).map(mapItem);
 }
 
@@ -156,10 +156,10 @@ const variantsJson = (variants) => (variants && variants.length
 
 export function createMakerItem(makerId, { title, priceText, body, bodyEntities, photos, variants = [], category = 'other' }) {
   const info = db.prepare(`
-    INSERT INTO maker_items (maker_id, title, price_text, category, body, body_entities, photos, variants)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO maker_items (maker_id, title, price_text, category, body, body_entities, photos, variants, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM maker_items WHERE maker_id = ?))
   `).run(makerId, title, priceText, category, body, toJson(bodyEntities), JSON.stringify(photos || []),
-    variantsJson(variants.map(v => ({ ...v, in_stock: true }))));
+    variantsJson(variants.map(v => ({ ...v, in_stock: true }))), makerId);
   return getMakerItem(info.lastInsertRowid);
 }
 
@@ -319,7 +319,7 @@ export function getCollectionItems(collectionId) {
     JOIN maker_items i ON i.id = ci.item_id
     JOIN makers m ON m.id = i.maker_id
     WHERE ci.collection_id = ? AND i.published = 1 AND m.status = 'active'
-    ORDER BY m.stock_updated_at IS NULL, m.stock_updated_at DESC, m.id, i.id
+    ORDER BY m.stock_updated_at IS NULL, m.stock_updated_at DESC, m.id, i.sort_order, i.id
   `).all(collectionId).map(mapItem);
 }
 
@@ -344,3 +344,20 @@ export function countMakerItemsInCollection(makerId, collectionId) {
     WHERE ci.collection_id = ? AND i.maker_id = ?
   `).get(collectionId, makerId).c;
 }
+
+// ── Порядок позиций ───────────────────────────────────────
+
+// Сдвинуть позицию на одно место вверх (-1) или вниз (+1) в меню мастера
+export const moveMakerItem = db.transaction((id, delta) => {
+  const item = getMakerItem(id);
+  if (!item) return false;
+  const ids = getMakerItems(item.maker_id).map(i => i.id);
+  const from = ids.indexOf(id);
+  const to = from + delta;
+  if (from === -1 || to < 0 || to >= ids.length) return false;
+  [ids[from], ids[to]] = [ids[to], ids[from]];
+  // Перенумеровываем подряд — так порядок всегда однозначный, даже если раньше были одинаковые значения
+  const upd = db.prepare('UPDATE maker_items SET sort_order = ? WHERE id = ?');
+  ids.forEach((itemId, idx) => upd.run(idx + 1, itemId));
+  return true;
+});
