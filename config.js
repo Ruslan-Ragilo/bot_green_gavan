@@ -46,6 +46,13 @@ export const config = {
     .map(id => Number(id.trim()))
     .filter(Boolean),
 
+  // Лог-бот для ошибок: отдельный бот присылает администратору ошибки, падения и перезапуски.
+  // Без LOG_BOT_TOKEN отчёты только пишутся в консоль.
+  logBotToken: process.env.LOG_BOT_TOKEN || '',
+  logChatIds: (process.env.LOG_CHAT_ID || '').split(',').map(id => Number(id.trim())).filter(Boolean),
+  botLabel: process.env.BOT_LABEL || '', // как подписывать бота в отчётах, например «ПРОД» / «DEV»
+  errorReportWindowMinutes: Number(process.env.ERROR_REPORT_WINDOW_MINUTES) || 10,
+
   // Реквизиты для добровольной поддержки проекта и контакты
   donateCard: process.env.DONATE_CARD || '',
   donatePhone: process.env.DONATE_PHONE || '',

@@ -6,6 +6,18 @@ import { createBot, setupBotCommands } from './src/bot.js';
 import { startTransportUpdaterJob, stopTransportUpdaterJob } from './src/jobs/transportUpdater.js';
 import { startKitchenJobs, stopKitchenJobs } from './src/jobs/kitchenJobs.js';
 import { startExpiredOrdersJob, stopExpiredOrdersJob } from './src/jobs/expiredOrders.js';
+import { reportError, reportEvent, hookConsoleErrors, setReporterBotName } from './src/services/errorReporter.js';
+
+// Все console.error и падения процесса — в лог-бот (если задан LOG_BOT_TOKEN)
+hookConsoleErrors();
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason instanceof Error ? reason : new Error(String(reason)));
+});
+process.on('uncaughtException', async (err) => {
+  console.log('❌ uncaughtException:', err);
+  await reportError(err, { where: 'Падение процесса (uncaughtException)' });
+  process.exit(1);
+});
 
 async function main() {
   console.log('🚀 Инициализация Telegram-бота для ЖК «Зелёная Гавань» (Транспорт и Мастера)...');
@@ -30,6 +42,7 @@ async function main() {
   // Корректное завершение работы при остановке процесса
   const shutdown = async (signal) => {
     console.log(`\n🛑 Получен сигнал ${signal}. Завершение работы бота...`);
+    await Promise.race([reportEvent(`🛑 Бот остановлен (${signal})`), new Promise(r => setTimeout(r, 2000))]);
     stopExpiredOrdersJob();
     stopKitchenJobs();
     stopTransportUpdaterJob();
@@ -55,6 +68,8 @@ async function main() {
   // Инициализируем бота и кэшируем данные о боте
   await bot.init();
   console.log(`🤖 Бот авторизован как @${bot.botInfo.username} (ID: ${bot.botInfo.id})`);
+  setReporterBotName(bot.botInfo.username);
+  reportEvent('🟢 Бот запущен', { key: 'start' });
 
   // Регистрируем быстрые команды в кнопке «Меню» Telegram (в инпуте)
   await setupBotCommands(bot);
@@ -150,5 +165,17 @@ main().catch((err) => {
     process.exit(0);
   }
   console.error('❌ Критическая ошибка при запуске бота:', err);
-  process.exit(1);
+  // Отчёт + пауза перед выходом. При 409 (бот с этим токеном уже запущен где-то ещё) или 429 (лимит Telegram)
+  // мгновенный перезапуск pm2 только усугубляет: тысячи рестартов и блокировка запросов. Ждём перед выходом.
+  const code = err?.error_code;
+  const waitSec = code === 409 ? 60 : code === 429 ? Math.min(Number(err?.parameters?.retry_after) || 60, 300) : 0;
+  const where = code === 409
+    ? 'Запуск: этот токен уже опрашивает другой экземпляр бота (409)'
+    : 'Критическая ошибка при запуске';
+  reportError(err, { where })
+    .catch(() => {})
+    .finally(() => {
+      if (waitSec) console.log(`⏳ Пауза ${waitSec} с перед перезапуском (код ${code})...`);
+      setTimeout(() => process.exit(1), waitSec * 1000);
+    });
 });

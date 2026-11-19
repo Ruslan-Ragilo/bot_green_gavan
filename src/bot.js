@@ -13,6 +13,7 @@ import { kitchenComposer } from './handlers/kitchen.js';
 import { makersComposer } from './handlers/makers.js';
 import { makerPanelComposer } from './handlers/makerPanel.js';
 import { resetPendingInputMiddleware } from './utils/pendingInput.js';
+import { reportError } from './services/errorReporter.js';
 import { USER_COMMANDS, ADMIN_COMMANDS, syncMakerCommands } from './services/botCommands.js';
 import { getAllMakers } from './db/repositories/makers.js';
 
@@ -38,6 +39,7 @@ export function createBot() {
     }
     const ctx = err.ctx;
     console.error(`[Bot Error] Ошибка при обработке апдейта ${ctx.update.update_id}:`, err.error);
+    reportError(err.error, { where: 'Ошибка обработчика', ctx });
   });
 
   // Замер времени сетевых вызовов к Telegram API через Cloudflare

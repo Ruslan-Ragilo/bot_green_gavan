@@ -210,6 +210,14 @@ CREATE TABLE IF NOT EXISTS maker_events (
 );
 CREATE INDEX IF NOT EXISTS idx_maker_events ON maker_events(maker_id, type, created_at);
 
+-- Отчёты об ошибках в лог-бот: когда одинаковая ошибка отправлялась последний раз (защита от спама,
+-- переживает перезапуски — иначе цикл падений присылал бы сообщение на каждый старт)
+CREATE TABLE IF NOT EXISTS error_reports (
+  key TEXT PRIMARY KEY,
+  last_sent_at INTEGER NOT NULL,
+  suppressed INTEGER NOT NULL DEFAULT 0
+);
+
 -- Подписки жильцов на мастеров (уведомления о наличии)
 CREATE TABLE IF NOT EXISTS maker_subscriptions (
   user_id INTEGER NOT NULL,
