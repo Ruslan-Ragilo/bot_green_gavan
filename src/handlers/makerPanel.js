@@ -75,7 +75,7 @@ export async function showPanel(ctx) {
     r.bold('⏳ Заявка на рассмотрении').nl(2)
       .plain(`«${maker.name}» — проверим и откроем доступ. Я пришлю сообщение, как только всё будет готово.`);
     if (!maker.contact) {
-      r.nl(2).italic('У вас в Telegram не указан username, поэтому кнопка «Написать» не откроет вашу личку. После одобрения укажите контакт в кабинете: «Описание и контакт».');
+      r.nl(2).italic('У вас в Telegram не указан username, поэтому кнопка «Написать» не откроет вашу личку. После одобрения укажите контакт в кабинете: «👤 Профиль».');
     }
     kb.text('◀️ Назад', 'mk:home');
     return show(ctx, r.build(), kb);
@@ -90,43 +90,66 @@ export async function showPanel(ctx) {
   const items = getMakerItems(maker.id);
   const subs = countSubscribers(maker.id);
   const fresh = isStockFresh(maker);
+  const weekViews = getMakerCounts(maker.id, periodSince('d7'))[EVENT.VIEW_MAKER].people;
 
   r.bold(`🧑‍🍳 Кабинет: ${maker.name}`).nl(2)
-    .plain(`🔔 Подписчиков: ${subs}`).nl()
+    .plain(`🔔 Подписчиков: ${subs} · 👀 смотрели за неделю: ${weekViews}`).nl()
     .plain(maker.stock_updated_at ? `🕒 Наличие обновлено ${formatWhen(maker.stock_updated_at)}` : '🕒 Наличие ещё не отмечали');
   if (maker.stock_updated_at && !fresh) {
-    r.nl().italic('Покупатели видят «наличие уточняйте» — подтвердите или обновите его.');
+    r.nl().italic('⚠️ Покупатели видят «наличие уточняйте» — откройте «Наличие» и подтвердите его.');
   }
   // Открытые подборки, куда мастер ещё ничего не добавил
   for (const c of getVisibleCollections()) {
     if (items.length && countMakerItemsInCollection(maker.id, c.id) === 0) {
-      r.nl(2).plain('🎁 Открыта подборка ').bold(c.title).plain(' — добавьте свои позиции: «✏️ Изменить позиции» → позиция → «🎁 Подборки».');
+      r.nl(2).plain('🎁 Открыта подборка ').bold(c.title).plain(' — добавьте позиции: «Мои позиции» → позиция → «🎁 Подборки».');
     }
   }
-
   if (items.length === 0) {
     r.nl(2).plain('Добавьте первую позицию: пришлите пост, как публикуете в группе, — фото и описание.');
-  } else {
-    r.nl(2).bold('Наличие').plain(' — нажмите на позицию, чтобы переключить ✅ / ❌:');
-    for (const item of items.slice(0, MAX_ITEMS)) {
-      if (item.variants.length) {
-        const on = item.variants.filter(v => v.in_stock).length;
-        kb.text(`${on ? '✅' : '❌'} ${item.published ? '' : '🙈 '}${item.title} (${on} из ${item.variants.length}) ›`, `mkp:v:${item.id}`).row();
-      } else {
-        kb.text(`${item.in_stock ? '✅' : '❌'} ${item.published ? '' : '🙈 '}${item.title}`, `mkp:t:${item.id}`).row();
-      }
-    }
-    kb.text('👍 Наличие актуально', 'mkp:fresh').text('📣 Сообщить подписчикам', 'mkp:notify').row();
-    if (items.some(i => !i.published)) r.nl().italic('🙈 — скрытая позиция, покупатели её не видят.');
   }
 
-  kb.text('➕ Добавить позицию', 'mkp:add').text('📖 Как оформить', 'mkp:guide:h').row();
-  if (items.length > 0) kb.text('✏️ Изменить позиции', 'mkp:items').row();
-  kb.text('👤 Описание и контакт', 'mkp:profile').text('👀 Как видят', `mk:m:${maker.id}`).row();
-  kb.text('📊 Статистика', 'mkp:st:d7').row();
+  if (items.length) {
+    const inStock = items.filter(i => i.in_stock).length;
+    kb.text(`✅ Наличие · ${inStock} из ${items.length}`, 'mkp:stock').row();
+    kb.text(`📋 Мои позиции · ${items.length}`, 'mkp:items').row();
+  }
+  kb.text('➕ Добавить позицию', 'mkp:add').row();
+  if (items.length) kb.text('📣 Сообщить подписчикам', 'mkp:notify').row();
+  kb.text('📊 Статистика', 'mkp:st:d7').text('👤 Профиль', 'mkp:profile').row();
   kb.text('◀️ Назад', 'mk:home');
   return show(ctx, r.build(), kb);
 }
+
+// ── Наличие: ежедневное дело — отдельный экран только с переключателями ──
+
+async function showStock(ctx) {
+  const maker = ownMaker(ctx);
+  if (!maker) return showPanel(ctx);
+  const items = getMakerItems(maker.id);
+  const r = rich().bold('✅ Наличие').nl(2)
+    .plain('Нажмите на позицию, чтобы переключить ✅ есть / ❌ под заказ.').nl()
+    .plain(maker.stock_updated_at ? `🕒 Обновлено ${formatWhen(maker.stock_updated_at)}` : '🕒 Ещё не отмечали');
+  if (items.some(i => !i.published)) r.nl().italic('🙈 — скрытая позиция, покупатели её не видят.');
+
+  const kb = new InlineKeyboard();
+  for (const item of items.slice(0, MAX_ITEMS)) {
+    const hidden = item.published ? '' : '🙈 ';
+    if (item.variants.length) {
+      const on = item.variants.filter(v => v.in_stock).length;
+      kb.text(`${on ? '✅' : '❌'} ${hidden}${item.title} (${on} из ${item.variants.length}) ›`, `mkp:v:${item.id}:s`).row();
+    } else {
+      kb.text(`${item.in_stock ? '✅' : '❌'} ${hidden}${item.title}`, `mkp:t:${item.id}`).row();
+    }
+  }
+  kb.text('👍 Всё актуально', 'mkp:fresh').text('📣 Сообщить', 'mkp:notify').row();
+  kb.text('◀️ Назад', 'mkp:home');
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.callbackQuery('mkp:stock', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await showStock(ctx);
+});
 
 makerPanelComposer.command('master', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
@@ -182,14 +205,14 @@ makerPanelComposer.callbackQuery('mkp:profile', async (ctx) => {
   await ctx.answerCallbackQuery();
   const maker = ownMaker(ctx);
   if (!maker) return showPanel(ctx);
-  const r = rich().bold('👤 Описание и контакт').nl(2)
+  const r = rich().bold('👤 Профиль').nl(2)
     .plain(`Имя: ${maker.name}`).nl()
     .plain(`Контакт для кнопки «Написать»: ${maker.contact || 'не указан'}`).nl(2)
     .rich(maker.about || '—', maker.about ? maker.about_entities : []);
   const kb = new InlineKeyboard()
     .text('✏️ Имя', 'mkp:pf:name').text('✏️ Описание', 'mkp:pf:about').row()
-    .text('✏️ Контакт', 'mkp:pf:contact').row()
-    .text('◀️ В кабинет', 'mkp:home');
+    .text('✏️ Контакт', 'mkp:pf:contact').text('👀 Как видят', `mk:m:${maker.id}`).row()
+    .text('◀️ Назад', 'mkp:home');
   await show(ctx, r.build(), kb);
 });
 
@@ -217,16 +240,16 @@ makerPanelComposer.callbackQuery(/^mkp:t:(\d+)$/, async (ctx) => {
   }
   if (own.item.variants.length) {
     await ctx.answerCallbackQuery();
-    return showVariants(ctx, own.item.id);
+    return showVariants(ctx, own.item.id, 's');
   }
   const item = toggleMakerItemStock(own.item.id);
   touchMakerStock(own.maker.id);
   await ctx.answerCallbackQuery({ text: item.in_stock ? `✅ ${item.title} — в наличии` : `❌ ${item.title} — нет в наличии` });
-  await showPanel(ctx);
+  await showStock(ctx);
 });
 
 // Наличие вариантов внутри одного поста (начинки блинов и т. п.)
-async function showVariants(ctx, itemId) {
+async function showVariants(ctx, itemId, from = 's') {
   const own = ownItem(ctx, itemId);
   if (!own || !own.item.variants.length) return showPanel(ctx);
   const { item } = own;
@@ -234,19 +257,20 @@ async function showVariants(ctx, itemId) {
     .plain('Нажмите на вариант, чтобы переключить ✅ / ❌. Покупатели увидят, что есть, а остальное — под заказ.');
   const kb = new InlineKeyboard();
   item.variants.forEach((v, i) => {
-    kb.text(`${v.in_stock ? '✅' : '❌'} ${v.name}${v.price ? ` · ${v.price}` : ''}`, `mkp:vt:${item.id}:${i}`).row();
+    kb.text(`${v.in_stock ? '✅' : '❌'} ${v.name}${v.price ? ` · ${v.price}` : ''}`, `mkp:vt:${item.id}:${i}:${from}`).row();
   });
-  kb.text('✅ Всё есть', `mkp:vt:${item.id}:all`).text('❌ Ничего нет', `mkp:vt:${item.id}:none`).row();
-  kb.text('◀️ В кабинет', 'mkp:home');
+  kb.text('✅ Всё есть', `mkp:vt:${item.id}:all:${from}`).text('❌ Ничего нет', `mkp:vt:${item.id}:none:${from}`).row();
+  if (from === 'i') kb.text('✖️ Это не варианты', `mkp:vclr:${item.id}`).row();
+  kb.text('◀️ Назад', from === 'i' ? `mkp:it:${item.id}` : 'mkp:stock');
   return show(ctx, r.build(), kb);
 }
 
-makerPanelComposer.callbackQuery(/^mkp:v:(\d+)$/, async (ctx) => {
+makerPanelComposer.callbackQuery(/^mkp:v:(\d+)(?::([si]))?$/, async (ctx) => {
   await ctx.answerCallbackQuery();
-  await showVariants(ctx, Number(ctx.match[1]));
+  await showVariants(ctx, Number(ctx.match[1]), ctx.match[2] || 's');
 });
 
-makerPanelComposer.callbackQuery(/^mkp:vt:(\d+):(\d+|all|none)$/, async (ctx) => {
+makerPanelComposer.callbackQuery(/^mkp:vt:(\d+):(\d+|all|none)(?::([si]))?$/, async (ctx) => {
   const own = ownItem(ctx, Number(ctx.match[1]));
   if (!own) {
     await ctx.answerCallbackQuery();
@@ -256,7 +280,7 @@ makerPanelComposer.callbackQuery(/^mkp:vt:(\d+):(\d+|all|none)$/, async (ctx) =>
   setVariantStock(own.item.id, mode);
   touchMakerStock(own.maker.id);
   await ctx.answerCallbackQuery();
-  await showVariants(ctx, own.item.id);
+  await showVariants(ctx, own.item.id, ctx.match[3] || 's');
 });
 
 makerPanelComposer.callbackQuery(/^mkp:vclr:(\d+)$/, async (ctx) => {
@@ -270,7 +294,7 @@ makerPanelComposer.callbackQuery('mkp:fresh', async (ctx) => {
   const maker = ownMaker(ctx);
   if (maker) touchMakerStock(maker.id);
   await ctx.answerCallbackQuery({ text: '👍 Отметил: наличие актуально' });
-  await showPanel(ctx);
+  await showStock(ctx);
 });
 
 // ── Рассылка подписчикам ──────────────────────────────────
@@ -333,14 +357,14 @@ async function showNotifyPicker(ctx, maker) {
   const kb = new InlineKeyboard();
   if (blocked) {
     r.plain(blocked);
-    kb.text('◀️ В кабинет', 'mkp:home');
+    kb.text('◀️ Назад', 'mkp:home');
     return show(ctx, r.build(), kb);
   }
 
   const inStock = getMakerItems(maker.id).filter(i => i.in_stock && i.published);
   if (inStock.length === 0) {
     r.plain('Сейчас ничего не отмечено в наличии. Отметьте позиции ✅ в кабинете — и сообщите подписчикам.');
-    kb.text('◀️ В кабинет', 'mkp:home');
+    kb.text('◀️ Назад', 'mkp:home');
     return show(ctx, r.build(), kb);
   }
 
@@ -359,7 +383,7 @@ async function showNotifyPicker(ctx, maker) {
     kb.text(`${sel.ids.has(item.id) ? '☑️' : '⬜'} ${item.title}`, `mkp:ns:${item.id}`).row();
   }
   kb.text(sel.ids.size ? `👀 Предпросмотр (${sel.ids.size})` : '👀 Предпросмотр', 'mkp:npv').row();
-  kb.text('◀️ В кабинет', 'mkp:home');
+  kb.text('◀️ Назад', 'mkp:home');
   return show(ctx, r.build(), kb);
 }
 
@@ -484,7 +508,7 @@ function buildMakerStats(maker, periodKey) {
 async function showOwnStats(ctx, periodKey) {
   const maker = ownMaker(ctx);
   if (!maker) return showPanel(ctx);
-  const kb = periodRow(new InlineKeyboard(), periodKey, 'mkp:st').text('◀️ В кабинет', 'mkp:home');
+  const kb = periodRow(new InlineKeyboard(), periodKey, 'mkp:st').text('◀️ Назад', 'mkp:home');
   return show(ctx, buildMakerStats(maker, periodKey), kb);
 }
 
@@ -520,7 +544,7 @@ async function showAnalytics(ctx, periodKey) {
 
   const kb = periodRow(new InlineKeyboard(), periodKey, 'mka:an');
   for (const { m } of rows.slice(0, 40)) kb.text(`📊 ${m.name}`, `mka:st:${m.id}:${periodKey}`).row();
-  kb.text('◀️ В админ-панель', 'admin:main');
+  kb.text('◀️ Назад', 'mka:hub');
   return show(ctx, r.build(), kb);
 }
 
@@ -565,11 +589,11 @@ function buildGuide() {
   r.bold('4. Проверьте черновик').nl()
     .plain('Бот покажет, как понял пост: название, цену, варианты. Поправьте, что не так, кнопками «✏️», выберите раздел и нажмите «✅ Сохранить». Посты у всех разные — черновик как раз для этого.').nl(2);
   r.bold('5. Отмечайте наличие').nl()
-    .plain('В кабинете нажатие на позицию переключает ✅ есть / ❌ под заказ. Ничего не поменялось — «👍 Наличие актуально». Через 3 дня без обновления покупатели увидят «уточняйте у мастера».').nl(2);
+    .plain('В кабинете «✅ Наличие» — нажатие на позицию переключает ✅ есть / ❌ под заказ. Ничего не поменялось — «👍 Наличие актуально». Через 3 дня без обновления покупатели увидят «уточняйте у мастера».').nl(2);
   r.bold('6. Сообщите подписчикам').nl()
     .plain('«📣 Сообщить подписчикам» → отметьте, что появилось → «Отправить». Не чаще раза в 4 часа.').nl(2);
   r.bold('Изменить потом').nl()
-    .plain('«✏️ Изменить позиции» → поправьте название или цену, или «🔁 Заменить пост». «👀 Как видят» — посмотреть глазами покупателя.').nl(2);
+    .plain('«📋 Мои позиции» → позиция: поправьте название или цену, или «🔁 Заменить пост». «👀 Как видят» — посмотреть глазами покупателя.').nl(2);
   r.italic('Подпись к фото — до 1024 символов (≈10–12 строк). Не помещается — разделите на два поста.');
   return r.build();
 }
@@ -579,7 +603,7 @@ makerPanelComposer.callbackQuery(/^mkp:guide:([ha])$/, async (ctx) => {
   await ctx.answerCallbackQuery();
   const kb = new InlineKeyboard();
   if (ctx.match[1] === 'a') kb.text('➕ Прислать пост', 'mkp:add').row();
-  kb.text('◀️ В кабинет', 'mkp:home');
+  kb.text('◀️ Назад', 'mkp:home');
   await show(ctx, buildGuide(), kb);
 });
 
@@ -994,9 +1018,11 @@ makerPanelComposer.callbackQuery('mkp:items', async (ctx) => {
   for (const item of getMakerItems(maker.id).slice(0, MAX_ITEMS)) {
     kb.text(`${item.published ? '' : '🙈 '}${itemButtonLabel(item)}`, `mkp:it:${item.id}`).row();
   }
-  if (getMakerItems(maker.id).length > 1) kb.text('↕️ Изменить порядок', 'mkp:ord:0').row();
-  kb.text('◀️ В кабинет', 'mkp:home');
-  await show(ctx, rich().bold('✏️ Изменить позиции').nl(2).plain('Выберите позицию:').build(), kb);
+  kb.text('➕ Добавить', 'mkp:add');
+  if (getMakerItems(maker.id).length > 1) kb.text('↕️ Порядок', 'mkp:ord:0');
+  kb.row().text('📖 Как оформить пост', 'mkp:guide:h').row();
+  kb.text('◀️ Назад', 'mkp:home');
+  await show(ctx, rich().bold('📋 Мои позиции').nl(2).plain('Нажмите на позицию, чтобы изменить её.').build(), kb);
 });
 
 // Порядок позиций: выбираете позицию, двигаете её ⬆️/⬇️ — в таком порядке её видят покупатели
@@ -1063,23 +1089,15 @@ async function showItemManage(ctx, itemId, { justSaved = false } = {}) {
   const inCollections = getAllCollections().filter(c => getItemCollectionIds(item.id).includes(c.id));
   if (inCollections.length) r.nl().plain(`🎁 В подборках: ${inCollections.map(c => c.title).join(', ')}`);
 
-  const kb = new InlineKeyboard();
-  MAKER_CATEGORIES.forEach((cat, i) => {
-    kb.text(cat.id === item.category ? `• ${cat.title} •` : cat.title, `mkp:cat:${item.id}:${cat.id}`);
-    if (i % 2 === 1) kb.row();
-  });
-  kb.row()
-    .text('✏️ Название', `mkp:f:${item.id}:title`).text('✏️ Цена', `mkp:f:${item.id}:price_text`).row()
-    .text('🔁 Заменить пост', `mkp:rep:${item.id}`).text('👀 Как видят', `mkp:pv:${item.id}:0`).row();
-  if (item.variants.length) {
-    kb.text('🧩 Наличие вариантов', `mkp:v:${item.id}`).text('✖️ Это не варианты', `mkp:vclr:${item.id}`).row();
-  }
-  kb.text(item.published ? '🙈 Скрыть от покупателей' : '👁 Опубликовать', `mkp:pub:${item.id}`);
+  const kb = new InlineKeyboard()
+    .text('✏️ Название', `mkp:f:${item.id}:title`).text('💰 Цена', `mkp:f:${item.id}:price_text`).text('🗂 Раздел', `mkp:sec:${item.id}`).row()
+    .text('🔁 Заменить пост', `mkp:rep:${item.id}`).text('👀 Как видят', `mkp:pv:${item.id}:0`).row()
+    .text(item.published ? '🙈 Скрыть' : '👁 Опубликовать', `mkp:pub:${item.id}`);
   if (getVisibleCollections().length) kb.text('🎁 Подборки', `mkp:cols:${item.id}`);
-  kb.row();
-  kb.text('🗑 Удалить', `mkp:del:${item.id}`).row();
+  if (item.variants.length) kb.text('🧩 Варианты', `mkp:v:${item.id}:i`);
+  kb.row().text('🗑 Удалить', `mkp:del:${item.id}`).row();
   if (justSaved) kb.text('➕ Добавить ещё позицию', 'mkp:add').row();
-  kb.text('◀️ К позициям', 'mkp:items').text('🏠 В кабинет', 'mkp:home');
+  kb.text('◀️ Назад', 'mkp:items');
   return show(ctx, r.build(), kb);
 }
 
@@ -1107,7 +1125,7 @@ async function showItemCollections(ctx, itemId) {
   for (const c of getVisibleCollections()) {
     kb.text(`${inIds.includes(c.id) ? '☑️' : '⬜'} ${c.title}`, `mkp:ct:${itemId}:${c.id}`).row();
   }
-  kb.text('◀️ К позиции', `mkp:it:${itemId}`);
+  kb.text('◀️ Назад', `mkp:it:${itemId}`);
   return show(ctx, r.build(), kb);
 }
 
@@ -1131,6 +1149,21 @@ makerPanelComposer.callbackQuery(/^mkp:ct:(\d+):(\d+)$/, async (ctx) => {
 makerPanelComposer.callbackQuery(/^mkp:it:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
   await showItemManage(ctx, Number(ctx.match[1]));
+});
+
+// Раздел меняют редко — выбор на отдельном экране, а не 7 кнопок на карточке позиции
+makerPanelComposer.callbackQuery(/^mkp:sec:(\d+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const own = ownItem(ctx, Number(ctx.match[1]));
+  if (!own) return showPanel(ctx);
+  const kb = new InlineKeyboard();
+  MAKER_CATEGORIES.forEach((cat, i) => {
+    kb.text(cat.id === own.item.category ? `• ${cat.title} •` : cat.title, `mkp:cat:${own.item.id}:${cat.id}`);
+    if (i % 2 === 1) kb.row();
+  });
+  kb.row().text('◀️ Назад', `mkp:it:${own.item.id}`);
+  await show(ctx, rich().bold('🗂 Раздел').nl(2).plain('По разделу покупатели находят ').bold(own.item.title)
+    .plain(' в сводке «Что есть сейчас».').build(), kb);
 });
 
 makerPanelComposer.callbackQuery(/^mkp:cat:(\d+):([a-z]+)$/, async (ctx) => {
@@ -1161,7 +1194,7 @@ makerPanelComposer.callbackQuery(/^mkp:pv:(\d+):(\d+)$/, async (ctx) => {
   const own = ownItem(ctx, Number(ctx.match[1]));
   if (!own) return showPanel(ctx);
   const { built, photo, keyboard } = buildItemCard(own.item, own.maker, { photoIndex: Number(ctx.match[2]), preview: true });
-  keyboard.text('◀️ Назад к позиции', `mkp:it:${own.item.id}`);
+  keyboard.text('◀️ Назад', `mkp:it:${own.item.id}`);
   await show(ctx, built, keyboard, photo ? { photo } : {});
 });
 
@@ -1225,9 +1258,7 @@ function makersAdminView() {
   if (makers.length > 0) r.plain('Выберите мастера, чтобы скрыть, одобрить или удалить.').nl();
   r.nl().plain(`🖼 Обложка раздела: ${getSectionCover() ? 'задана' : 'не задана — раздел показывается текстом'}`).nl();
   r.nl().italic('Передать карточку: /maker_owner <номер> @username (мастер должен хотя бы раз нажать /start).');
-  kb.text('🎁 Подборки', 'mkc:list').text('🖼 Обложка раздела', 'mka:cover').row();
-  kb.text('📊 Аналитика мастеров', 'mka:an:d7').row();
-  kb.text('◀️ В админ-панель', 'admin:main');
+  kb.text('◀️ Назад', 'mka:hub');
   return { built: r.build(), kb };
 }
 
@@ -1239,13 +1270,14 @@ function makerAdminCard(maker) {
     .plain(`Владелец: id ${maker.user_id}${maker.contact ? `, ${maker.contact}` : ''}`).nl()
     .plain(`Позиций: ${items}, подписчиков: ${subs}`).nl()
     .plain(`Наличие: ${maker.stock_updated_at ? formatWhen(maker.stock_updated_at) : 'не отмечалось'}`);
+  if (maker.about) r.nl(2).rich(maker.about, maker.about_entities);
   const kb = new InlineKeyboard();
   if (maker.status === 'pending' || maker.status === 'rejected') kb.text('✅ Одобрить', `mka:ok:${maker.id}`);
   if (maker.status === 'pending') kb.text('❌ Отклонить', `mka:no:${maker.id}`);
   if (maker.status === 'active') kb.text('🙈 Скрыть', `mka:tog:${maker.id}`);
   if (maker.status === 'hidden') kb.text('👁 Показать', `mka:tog:${maker.id}`);
   kb.row().text('👀 Карточка', `mk:m:${maker.id}`).text('🗑 Удалить', `mka:del:${maker.id}`).row()
-    .text('◀️ К списку', 'mka:list');
+    .text('◀️ Назад', 'mka:list');
   return { built: r.build(), kb };
 }
 
@@ -1259,8 +1291,49 @@ async function editView(ctx, { built, kb }) {
 
 makerPanelComposer.command('makers', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return;
-  const { built, kb } = makersAdminView();
-  await ctx.reply(built.text, { entities: built.entities, reply_markup: kb });
+  await showHub(ctx);
+});
+
+// Админ: всё по разделу «Домашнее и ручное» в одном месте
+async function showHub(ctx) {
+  const makers = getAllMakers();
+  const active = makers.filter(m => m.status === 'active').length;
+  const pending = makers.filter(m => m.status === 'pending').length;
+  const collections = getAllCollections();
+  const visible = collections.filter(c => c.visible).length;
+  const r = rich().bold('🧺 Домашнее и ручное').nl(2)
+    .plain(`👩‍🍳 Мастеров: ${active}${pending ? ` · ⏳ заявок: ${pending}` : ''}`).nl()
+    .plain(`🎁 Подборок: ${collections.length}${collections.length ? ` · видно покупателям: ${visible}` : ''}`).nl()
+    .plain(`🖼 Обложка раздела: ${getSectionCover() ? 'задана' : 'нет'}`);
+  const kb = new InlineKeyboard();
+  if (pending) kb.text(`⏳ Заявки · ${pending}`, 'mka:req').row();
+  kb.text(`👩‍🍳 Мастера · ${makers.length}`, 'mka:list').text(`🎁 Подборки · ${collections.length}`, 'mkc:list').row()
+    .text('📊 Аналитика', 'mka:an:d7').text('🖼 Обложка', 'mka:cover').row()
+    .text('◀️ Назад', 'admin:main');
+  return show(ctx, r.build(), kb);
+}
+
+makerPanelComposer.callbackQuery('mka:hub', async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCallbackQuery();
+  await ctx.answerCallbackQuery();
+  await showHub(ctx);
+});
+
+// Заявки мастеров на рассмотрении
+makerPanelComposer.callbackQuery('mka:req', async (ctx) => {
+  if (!isAdmin(ctx.from.id)) return ctx.answerCallbackQuery();
+  await ctx.answerCallbackQuery();
+  const pending = getAllMakers().filter(m => m.status === 'pending');
+  if (pending.length === 1) {
+    const { built, kb } = makerAdminCard(getMaker(pending[0].id));
+    return show(ctx, built, kb);
+  }
+  const r = rich().bold('⏳ Заявки мастеров').nl(2);
+  if (!pending.length) r.plain('Новых заявок нет.');
+  const kb = new InlineKeyboard();
+  for (const m of pending) kb.text(`⏳ ${m.name}`, `mka:m:${m.id}`).row();
+  kb.text('◀️ Назад', 'mka:hub');
+  return show(ctx, r.build(), kb);
 });
 
 makerPanelComposer.callbackQuery('mka:list', async (ctx) => {
@@ -1329,7 +1402,7 @@ function collectionsAdminView() {
     kb.text(`${c.visible ? '👁' : '🙈'} ${c.title} · ${c.items_count}`, `mkc:c:${c.id}`).row();
   }
   kb.text('➕ Новая подборка', 'mkc:new').row();
-  kb.text('◀️ К мастерам', 'mka:list');
+  kb.text('◀️ Назад', 'mka:hub');
   return { built: r.build(), kb };
 }
 
@@ -1344,7 +1417,7 @@ function collectionAdminCard(c) {
     .text('✏️ Название', `mkc:ed:${c.id}:title`).text('✏️ Описание', `mkc:ed:${c.id}:description`).row()
     .text('📣 Сообщить мастерам', `mkc:nm:${c.id}`).text('👀 Как видят', `mk:col:${c.id}`).row()
     .text('🗑 Удалить', `mkc:del:${c.id}`).row()
-    .text('◀️ К подборкам', 'mkc:list');
+    .text('◀️ Назад', 'mkc:list');
   return { built: r.build(), kb };
 }
 
@@ -1417,7 +1490,7 @@ makerPanelComposer.callbackQuery(/^mkc:nm:(\d+)$/, async (ctx) => {
 function makerCollectionInvite(c) {
   const r = rich().plain('🎁 Открыта подборка ').bold(c.title).nl(2);
   if (c.description) r.rich(c.description, c.description_entities).nl(2);
-  r.plain('Добавьте свои позиции: кабинет → «✏️ Изменить позиции» → позиция → «🎁 Подборки». Сезонные позиции можно держать скрытыми и опубликовать к празднику.');
+  r.plain('Добавьте свои позиции: кабинет → «📋 Мои позиции» → позиция → «🎁 Подборки». Сезонные позиции можно держать скрытыми и опубликовать к празднику.');
   return r.build();
 }
 
@@ -1467,7 +1540,7 @@ makerPanelComposer.callbackQuery('mka:cover', async (ctx) => {
   setPendingInput(ctx.from.id, 'makers_cover');
   const kb = new InlineKeyboard();
   if (getSectionCover()) kb.text('🗑 Убрать обложку', 'mka:cover_off').row();
-  kb.text('◀️ Назад', 'mka:list');
+  kb.text('◀️ Назад', 'mka:hub');
   await editView(ctx, {
     built: rich().bold('🖼 Обложка раздела').nl(2)
       .plain('Пришлите картинку — она будет вверху раздела «Домашнее и ручное» и сводки «Что есть сейчас».').nl(2)

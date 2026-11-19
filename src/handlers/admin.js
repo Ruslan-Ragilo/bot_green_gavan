@@ -16,23 +16,27 @@ import {
 import { getTotalUsersCount, getAllUserIds, getUsersStatistics } from '../db/repositories/users.js';
 import { escapeMarkdown, formatPrice } from '../utils/text.js';
 import { checkAndUpdateTransportSchedules } from '../jobs/transportUpdater.js';
+import { renderScreen } from '../utils/cleanChat.js';
+import { setPendingInput, getPendingInput, clearPendingInput } from '../utils/pendingInput.js';
 
 export const adminComposer = new Composer();
 
 // Временное хранилище черновиков рассылок перед подтверждением
 const broadcastDrafts = new Map();
 
-// Главная клавиатура панели администратора
+// Главная клавиатура панели администратора: только разделы, редкое — внутри
 function adminMenuKeyboard() {
-  const kb = new InlineKeyboard().text('📊 Статистика и аналитика', 'admin:stats').row();
+  const pending = getAllMakers().filter(m => m.status === 'pending').length;
+  const kb = new InlineKeyboard();
+  if (pending) kb.text(`⏳ Заявки мастеров · ${pending}`, 'mka:req').row();
+  kb.text('🧺 Домашнее и ручное', 'mka:hub').row()
+    .text('📊 Статистика бота', 'admin:stats').row()
+    .text('📢 Рассылка', 'admin:broadcast_prompt').row()
+    .text('🚌 Обновить расписание', 'admin:update_transport').row();
   if (config.preordersEnabled) {
-    kb.text('⏸ Приём заказов (Пауза/Пуск)', 'admin:places_pause').row()
-      .text('🚫 Стоп-лист меню', 'admin:stop_list').row();
+    kb.text('⏸ Приём заказов', 'admin:places_pause').text('🚫 Стоп-лист', 'admin:stop_list').row()
+      .text('🔍 Найти заказ', 'admin:find_prompt').row();
   }
-  kb.text('🧺 Мастера', 'mka:list').text('📊 Аналитика мастеров', 'mka:an:d7').row()
-    .text('🚌 Обновить расписание транспорта', 'admin:update_transport').row()
-    .text('📢 Рассылка жильцам ЖК', 'admin:broadcast_prompt');
-  if (config.preordersEnabled) kb.row().text('🔍 Найти заказ по номеру', 'admin:find_prompt');
   return kb;
 }
 
@@ -44,59 +48,38 @@ function makersSummary() {
   return `активных ${active}, на рассмотрении ${pending}, позиций ${items}`;
 }
 
+function adminMainText() {
+  const userStats = getUsersStatistics();
+  const makers = getAllMakers();
+  const active = makers.filter(m => m.status === 'active').length;
+  const pending = makers.filter(m => m.status === 'pending').length;
+  let text = (
+    `👑 *Админ-панель*\n\n` +
+    `👥 Жильцов: *${userStats.total}* · активных за сутки: *${userStats.active24h}*\n` +
+    `🧺 Мастеров: *${active}*` + (pending ? ` · ⏳ заявок: *${pending}*` : '') + '\n'
+  );
+  if (config.preordersEnabled) {
+    const activePlaces = getActivePlaces();
+    text += `🏪 Принимают заказы: ${activePlaces.length ? activePlaces.map(p => escapeMarkdown(p.name)).join(', ') : 'все на паузе'}\n`;
+  }
+  return text;
+}
+
+// Админка живёт в одном сообщении, как и остальной бот
+async function showAdminMain(ctx) {
+  await renderScreen(ctx, adminMainText(), { parse_mode: 'Markdown', reply_markup: adminMenuKeyboard() });
+}
+
 // 1. Главная команда /admin — доступна ТОЛЬКО администраторам
 adminComposer.command('admin', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) {
-    // Для не-админов ничего не выдаем, команда словно не существует
-    return;
-  }
-
-  const userStats = getUsersStatistics();
-  const activePlaces = getActivePlaces();
-
-  const text = (
-    `👑 *Панель администратора ЖК «Зелёная Гавань»*\n\n` +
-    `👤 *Администратор:* ${ctx.from.first_name} (ID: \`${ctx.from.id}\`)\n` +
-    `👥 *Жильцов в базе:* ${userStats.total} чел. (активных за 24ч: *${userStats.active24h}*)\n` +
-    `📌 *Закреплено расписаний:* ${userStats.totalPins} шт.\n` +
-    (config.preordersEnabled ? `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n` : '') + '\n' +
-    `Выберите раздел управления:`
-  );
-
-  await ctx.reply(text, {
-    parse_mode: 'Markdown',
-    reply_markup: adminMenuKeyboard(),
-  });
+  if (!isAdmin(ctx.from?.id)) return; // для остальных команды словно не существует
+  await showAdminMain(ctx);
 });
 
-// Возврат в главное меню админки через кнопку
 adminComposer.callbackQuery('admin:main', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: '⛔ Доступ запрещён', show_alert: true });
   await ctx.answerCallbackQuery();
-
-  const userStats = getUsersStatistics();
-  const activePlaces = getActivePlaces();
-
-  const text = (
-    `👑 *Панель администратора ЖК «Зелёная Гавань»*\n\n` +
-    `👤 *Администратор:* ${ctx.from.first_name} (ID: \`${ctx.from.id}\`)\n` +
-    `👥 *Жильцов в базе:* ${userStats.total} чел. (активных за 24ч: *${userStats.active24h}*)\n` +
-    `📌 *Закреплено расписаний:* ${userStats.totalPins} шт.\n` +
-    (config.preordersEnabled ? `🏪 *Активных точек:* ${activePlaces.length > 0 ? activePlaces.map(p => p.name).join(', ') : 'Все на паузе'}\n` : '') + '\n' +
-    `Выберите раздел управления:`
-  );
-
-  try {
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      reply_markup: adminMenuKeyboard(),
-    });
-  } catch {
-    await ctx.reply(text, {
-      parse_mode: 'Markdown',
-      reply_markup: adminMenuKeyboard(),
-    });
-  }
+  await showAdminMain(ctx);
 });
 
 // 2. Раздел: 📊 Статистика
@@ -147,7 +130,7 @@ adminComposer.callbackQuery('admin:stats', async (ctx) => {
 
   const keyboard = new InlineKeyboard()
     .text('🔄 Обновить цифры', 'admin:stats').row()
-    .text('◀️ В админ-меню', 'admin:main');
+    .text('◀️ Назад', 'admin:main');
 
   try {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
@@ -170,7 +153,7 @@ adminComposer.callbackQuery('admin:places_pause', async (ctx) => {
     keyboard.text(`${statusEmoji} «${p.name}» — [${actionLabel}]`, `admin:toggle_place:${p.id}`).row();
   }
 
-  keyboard.text('◀️ В админ-меню', 'admin:main');
+  keyboard.text('◀️ Назад', 'admin:main');
 
   const text = (
     `⏸ *Управление приёмом заказов (Panic Button)*\n\n` +
@@ -210,7 +193,7 @@ adminComposer.callbackQuery(/^admin:toggle_place:(\d+)$/, async (ctx) => {
     const actionLabel = p.is_active ? 'Поставить на паузу' : 'Возобновить';
     keyboard.text(`${statusEmoji} «${p.name}» — [${actionLabel}]`, `admin:toggle_place:${p.id}`).row();
   }
-  keyboard.text('◀️ В админ-меню', 'admin:main');
+  keyboard.text('◀️ Назад', 'admin:main');
 
   const text = (
     `⏸ *Управление приёмом заказов (Panic Button)*\n\n` +
@@ -229,7 +212,7 @@ adminComposer.callbackQuery('admin:stop_list', async (ctx) => {
   const places = getAllPlaces();
   if (places.length === 0) {
     return ctx.editMessageText('Заведений не найдено.', {
-      reply_markup: new InlineKeyboard().text('◀️ В админ-меню', 'admin:main'),
+      reply_markup: new InlineKeyboard().text('◀️ Назад', 'admin:main'),
     });
   }
 
@@ -242,7 +225,7 @@ adminComposer.callbackQuery('admin:stop_list', async (ctx) => {
     const icon = item.is_available ? '🟢' : '🔴 СТОП:';
     keyboard.text(`${icon} ${item.name} (${formatPrice(item.price)})`, `admin:toggle_item:${item.id}`).row();
   }
-  keyboard.text('◀️ В админ-меню', 'admin:main');
+  keyboard.text('◀️ Назад', 'admin:main');
 
   const text = (
     `🚫 *Стоп-лист меню: «${activePlace.name}»*\n\n` +
@@ -281,7 +264,7 @@ adminComposer.callbackQuery(/^admin:toggle_item:(\d+)$/, async (ctx) => {
     const icon = item.is_available ? '🟢' : '🔴 СТОП:';
     keyboard.text(`${icon} ${item.name} (${formatPrice(item.price)})`, `admin:toggle_item:${item.id}`).row();
   }
-  keyboard.text('◀️ В админ-меню', 'admin:main');
+  keyboard.text('◀️ Назад', 'admin:main');
 
   const text = (
     `🚫 *Стоп-лист меню: «${updatedItem.place_name}»*\n\n` +
@@ -299,24 +282,26 @@ adminComposer.callbackQuery('admin:broadcast_prompt', async (ctx) => {
   await ctx.answerCallbackQuery();
 
   const usersCount = getTotalUsersCount();
+  setPendingInput(ctx.from.id, 'admin_broadcast');
 
   const text = (
-    `📢 *Рассылка сообщений жителям ЖК*\n\n` +
-    `👥 Всего получателей в базе: *${usersCount} чел.*\n\n` +
-    `Чтобы создать рассылку, отправьте команду:\n` +
-    `\`/broadcast Текст вашего объявления\`\n\n` +
-    `*Пример:*\n` +
-    `\`/broadcast 🍕 Привет! Сегодня в пиццерии «Кава ля печы» свежая римская пицца из печи. Заказывайте к ужину без очереди!\`\n\n` +
-    `💡 *Бот НЕ отправит сообщение сразу!* Сначала он покажет вам *Предпросмотр* с кнопками «Отправить» и «Отмена».`
+    `📢 *Рассылка жильцам*\n\n` +
+    `👥 Получателей: *${usersCount}*\n\n` +
+    `Пришлите текст объявления следующим сообщением. Сразу ничего не отправится: сначала покажу предпросмотр, ` +
+    `там же можно прикрепить кнопку подборки.`
   );
+  await renderScreen(ctx, text, { parse_mode: 'Markdown', reply_markup: new InlineKeyboard().text('✖️ Отмена', 'admin:main') });
+});
 
-  const keyboard = new InlineKeyboard().text('◀️ В админ-меню', 'admin:main');
-
-  try {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-  } catch {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: keyboard });
-  }
+// Текст рассылки, присланный после кнопки «📢 Рассылка»
+adminComposer.on('message:text', async (ctx, next) => {
+  if (ctx.chat?.type !== 'private' || !isAdmin(ctx.from?.id) || ctx.message.text.startsWith('/')) return next();
+  if (!getPendingInput(ctx.from.id, 'admin_broadcast')) return next();
+  clearPendingInput(ctx.from.id);
+  const draftId = `draft_${Date.now()}`;
+  broadcastDrafts.set(draftId, { text: ctx.message.text.trim(), collectionId: null, createdAt: Date.now() });
+  const { text, keyboard } = broadcastPreview(draftId);
+  await renderScreen(ctx, text, { parse_mode: 'Markdown', reply_markup: keyboard });
 });
 
 // Обработка команды /broadcast с текстом
@@ -422,8 +407,8 @@ adminComposer.callbackQuery(/^admin:broadcast_send:(draft_\d+)$/, async (ctx) =>
     `👥 Всего в базе: *${userIds.length}*`
   );
 
-  const keyboard = new InlineKeyboard().text('◀️ В админ-меню', 'admin:main');
-  await ctx.reply(resultText, { parse_mode: 'Markdown', reply_markup: keyboard });
+  const keyboard = new InlineKeyboard().text('◀️ Назад', 'admin:main');
+  await renderScreen(ctx, resultText, { parse_mode: 'Markdown', reply_markup: keyboard });
 });
 
 // Отмена рассылки
@@ -435,7 +420,7 @@ adminComposer.callbackQuery(/^admin:broadcast_cancel:(draft_\d+)$/, async (ctx) 
   await ctx.answerCallbackQuery({ text: 'Рассылка отменена' });
   await ctx.editMessageText('❌ *Рассылка отменена.* Сообщение не было отправлено.', {
     parse_mode: 'Markdown',
-    reply_markup: new InlineKeyboard().text('◀️ В админ-меню', 'admin:main'),
+    reply_markup: new InlineKeyboard().text('◀️ Назад', 'admin:main'),
   });
 });
 
@@ -453,7 +438,7 @@ adminComposer.callbackQuery('admin:find_prompt', async (ctx) => {
     `\`/order TEST-990\``
   );
 
-  const keyboard = new InlineKeyboard().text('◀️ В админ-меню', 'admin:main');
+  const keyboard = new InlineKeyboard().text('◀️ Назад', 'admin:main');
 
   try {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard });
@@ -495,7 +480,7 @@ adminComposer.command('order', async (ctx) => {
   if (!['issued', 'cancelled', 'expired', 'no_show'].includes(order.status)) {
     keyboard.text('❌ Принудительно отменить заказ', `admin:cancel_order:${order.id}`).row();
   }
-  keyboard.text('◀️ В админ-меню', 'admin:main');
+  keyboard.text('◀️ Назад', 'admin:main');
 
   await ctx.reply(text, {
     parse_mode: 'Markdown',
@@ -548,7 +533,7 @@ adminComposer.callbackQuery(/^admin:cancel_order:(\d+)$/, async (ctx) => {
 
   await ctx.reply(`✅ *Заказ ${order.order_code} принудительно отменён.* Уведомления клиенту и заведению отправлены.`, {
     parse_mode: 'Markdown',
-    reply_markup: new InlineKeyboard().text('◀️ В админ-меню', 'admin:main'),
+    reply_markup: new InlineKeyboard().text('◀️ Назад', 'admin:main'),
   });
 });
 
@@ -557,9 +542,7 @@ adminComposer.callbackQuery('admin:update_transport', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: '⛔ Доступ запрещён', show_alert: true });
   await ctx.answerCallbackQuery({ text: 'Проверяем расписание на портале...' });
 
-  const waitMsg = await ctx.reply('⏳ *Выполняется синхронизация расписания с официальным API kogda.by (Минсктранс)...*', {
-    parse_mode: 'Markdown',
-  });
+  await ctx.editMessageText('⏳ *Проверяю расписание на kogda.by (Минсктранс)...*', { parse_mode: 'Markdown' }).catch(() => {});
 
   const res = await checkAndUpdateTransportSchedules(ctx.api);
 
@@ -576,15 +559,11 @@ adminComposer.callbackQuery('admin:update_transport', async (ctx) => {
     replyText = `✅ *Расписание актуально!* Изменений на портале не обнаружено. Все рейсы совпадают с текущими данными бота.`;
   }
 
-  try {
-    await ctx.api.deleteMessage(ctx.chat.id, waitMsg.message_id);
-  } catch {}
-
-  await ctx.reply(replyText, {
+  await renderScreen(ctx, replyText, {
     parse_mode: 'Markdown',
     reply_markup: new InlineKeyboard()
       .text('🚌 Посмотреть расписание', 'transport:menu').row()
-      .text('◀️ В админ-меню', 'admin:main'),
+      .text('◀️ Назад', 'admin:main'),
   });
 });
 

@@ -21,14 +21,12 @@ export const MAKER_COMMANDS = [
   { command: 'support', description: '❤️ Поддержка проекта и связь' },
 ];
 
+// Админу в меню — только входы; остальное (/makers, /analytics, /broadcast) работает, но доступно кнопками в /admin
 export const ADMIN_COMMANDS = [
-  { command: 'admin', description: '👑 Панель администратора' },
+  { command: 'admin', description: '👑 Админ-панель' },
   { command: 'start', description: '🏠 Главное меню' },
-  { command: 'makers', description: '🧺 Мастера: заявки, скрыть/показать' },
-  { command: 'analytics', description: '📊 Аналитика мастеров' },
   { command: 'master', description: '🧑‍🍳 Кабинет мастера' },
   { command: 'transport', description: '🚌 Расписание транспорта' },
-  { command: 'broadcast', description: '📢 Рассылка жильцам ЖК' },
 ];
 
 const isAdminId = (userId) => config.adminIds.includes(Number(userId));
