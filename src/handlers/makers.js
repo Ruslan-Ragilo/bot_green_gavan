@@ -48,10 +48,12 @@ function track(ctx, maker, type, itemId = null) {
   logMakerEvent({ makerId: maker.id, itemId, userId, type });
 }
 
-// «Написать мастеру» — сначала кнопка бота (чтобы посчитать переход), она превращается в ссылку на личку
-function writeButton(keyboard, maker, itemId = 0) {
-  if (contactUrl(maker.contact)) keyboard.text('✉️ Написать мастеру', `mk:w:${maker.id}:${itemId}`).row();
+// «Написать мастеру» — прямой переход по ссылке в личку Telegram
+function writeButton(keyboard, maker) {
+  const url = contactUrl(maker.contact);
+  if (url) keyboard.url('✉️ Написать мастеру', url).row();
 }
+
 
 // ── Раздел ────────────────────────────────────────────────
 
