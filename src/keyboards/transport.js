@@ -26,11 +26,14 @@ export function transportMenuKeyboard(cartTotalQuantity = 0) {
   // 3. Домашняя еда и изделия ручной работы от местных мастеров
   keyboard.text('🧺 Домашнее и ручное', 'mk:home').row();
 
+  // 4. Важные объявления, потеряшки и помощь соседям
+  keyboard.text('🔔 Сигнал Гавани (сообщить всем)', 'sig:home').row();
+
   if (config.preordersEnabled && cartTotalQuantity > 0) {
     keyboard.text(`🛒 Оформить заказ (${cartTotalQuantity} шт.)`, 'cart:view').row();
   }
 
-  // 4. Поддержка и обратная связь
+  // 5. Поддержка и обратная связь
   keyboard.text('❤️ Поддержка проекта / Связь', 'support:menu');
 
   return keyboard;

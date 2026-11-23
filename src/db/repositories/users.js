@@ -33,12 +33,14 @@ export function deleteUserData(telegramId) {
   const clearCart = db.prepare('DELETE FROM cart_items WHERE user_id = ?');
   const clearPins = db.prepare('DELETE FROM user_pins WHERE user_id = ?');
   const clearSubscriptions = db.prepare('DELETE FROM maker_subscriptions WHERE user_id = ?');
+  const clearSignalMutes = db.prepare('DELETE FROM signal_mutes WHERE user_id = ?');
   const deleteUser = db.prepare('DELETE FROM users WHERE telegram_id = ?');
 
   const transaction = db.transaction((id) => {
     clearCart.run(id);
     clearPins.run(id);
     clearSubscriptions.run(id);
+    clearSignalMutes.run(id);
     return deleteUser.run(id);
   });
 

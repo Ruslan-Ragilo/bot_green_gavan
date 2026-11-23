@@ -226,4 +226,26 @@ CREATE TABLE IF NOT EXISTS maker_subscriptions (
   created_at TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, maker_id)
 );
+
+-- «Сигнал Гавани»: важные объявления, потеряшки и срочная помощь соседей
+CREATE TABLE IF NOT EXISTS signals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  author_name TEXT NOT NULL DEFAULT '',
+  author_username TEXT,
+  text TEXT NOT NULL,
+  entities TEXT,
+  photo TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'closed', 'rejected')),
+  created_at TEXT DEFAULT (datetime('now')),
+  published_at TEXT,
+  expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status, published_at);
+
+-- Кто отключил уведомления «Сигнал Гавани» (по умолчанию все жильцы подписаны)
+CREATE TABLE IF NOT EXISTS signal_mutes (
+  user_id INTEGER PRIMARY KEY,
+  created_at TEXT DEFAULT (datetime('now'))
+);
 `;

@@ -1,6 +1,7 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { config, isAdmin } from '../../config.js';
 import { getAllMakers, getVisibleCollections, getCollection } from '../db/repositories/makers.js';
+import { getPendingSignals } from '../db/repositories/signals.js';
 import {
   getAllPlaces,
   getActivePlaces,
@@ -27,7 +28,9 @@ const broadcastDrafts = new Map();
 // Главная клавиатура панели администратора: только разделы, редкое — внутри
 function adminMenuKeyboard() {
   const pending = getAllMakers().filter(m => m.status === 'pending').length;
+  const pendingSignals = getPendingSignals().length;
   const kb = new InlineKeyboard();
+  if (pendingSignals) kb.text(`🔔 Сигналы на проверке · ${pendingSignals}`, 'siga:list').row();
   if (pending) kb.text(`⏳ Заявки мастеров · ${pending}`, 'mka:req').row();
   kb.text('🧺 Домашнее и ручное', 'mka:hub').row()
     .text('📊 Статистика бота', 'admin:stats').row()
