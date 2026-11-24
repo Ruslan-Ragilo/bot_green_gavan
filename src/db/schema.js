@@ -248,4 +248,70 @@ CREATE TABLE IF NOT EXISTS signal_mutes (
   user_id INTEGER PRIMARY KEY,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- «Услуги и красота»: мастера и специалисты ЖК (маникюр, массаж, брови и т.д.)
+CREATE TABLE IF NOT EXISTS service_providers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  location TEXT NOT NULL DEFAULT '',
+  about TEXT NOT NULL DEFAULT '',
+  about_entities TEXT,
+  contact TEXT,
+  booking_url TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'hidden', 'rejected')),
+  last_hot_notified_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Услуги и портфолио специалиста (пост с фото/альбомом и описанием/прайсом)
+CREATE TABLE IF NOT EXISTS service_offers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id INTEGER NOT NULL REFERENCES service_providers(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  price_text TEXT,
+  duration_text TEXT,
+  category TEXT NOT NULL DEFAULT 'other',
+  body TEXT NOT NULL DEFAULT '',
+  body_entities TEXT,
+  photos TEXT NOT NULL DEFAULT '[]',
+  published INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_service_offers_provider ON service_offers(provider_id);
+
+-- Горящие отмены (редкие свободные окна, которые специалист закрывает в 1 тап или они истекают сами)
+CREATE TABLE IF NOT EXISTS service_hot_slots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id INTEGER NOT NULL REFERENCES service_providers(id) ON DELETE CASCADE,
+  offer_id INTEGER REFERENCES service_offers(id) ON DELETE SET NULL,
+  slot_at TEXT NOT NULL,
+  title TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+  notified_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_service_hot_slots_active ON service_hot_slots(status, slot_at);
+
+-- Подписки жильцов на горящие окна специалистов
+CREATE TABLE IF NOT EXISTS service_subscriptions (
+  user_id INTEGER NOT NULL,
+  provider_id INTEGER NOT NULL REFERENCES service_providers(id) ON DELETE CASCADE,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, provider_id)
+);
+
+-- Аналитика раздела «Услуги и красота»
+CREATE TABLE IF NOT EXISTS service_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id INTEGER NOT NULL,
+  offer_id INTEGER,
+  user_id INTEGER NOT NULL,
+  type TEXT NOT NULL,              -- view_provider | view_offer | contact | booking_link
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_service_events ON service_events(provider_id, type, created_at);
 `;

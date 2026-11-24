@@ -1,6 +1,7 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { config, isAdmin } from '../../config.js';
 import { getAllMakers, getVisibleCollections, getCollection } from '../db/repositories/makers.js';
+import { getAllProviders } from '../db/repositories/servicesCatalog.js';
 import { getPendingSignals } from '../db/repositories/signals.js';
 import {
   getAllPlaces,
@@ -28,11 +29,14 @@ const broadcastDrafts = new Map();
 // Главная клавиатура панели администратора: только разделы, редкое — внутри
 function adminMenuKeyboard() {
   const pending = getAllMakers().filter(m => m.status === 'pending').length;
+  const pendingServices = getAllProviders().filter(p => p.status === 'pending').length;
   const pendingSignals = getPendingSignals().length;
   const kb = new InlineKeyboard();
   if (pendingSignals) kb.text(`🔔 Сигналы на проверке · ${pendingSignals}`, 'siga:list').row();
   if (pending) kb.text(`⏳ Заявки мастеров · ${pending}`, 'mka:req').row();
+  if (pendingServices) kb.text(`⏳ Заявки услуг · ${pendingServices}`, 'srva:req').row();
   kb.text('🧺 Домашнее и ручное', 'mka:hub').row()
+    .text('💅 Услуги и красота', 'srva:hub').row()
     .text('📊 Статистика бота', 'admin:stats').row()
     .text('📢 Рассылка', 'admin:broadcast_prompt').row()
     .text('🚌 Обновить расписание', 'admin:update_transport').row();
@@ -56,10 +60,14 @@ function adminMainText() {
   const makers = getAllMakers();
   const active = makers.filter(m => m.status === 'active').length;
   const pending = makers.filter(m => m.status === 'pending').length;
+  const providers = getAllProviders();
+  const activeProviders = providers.filter(p => p.status === 'active').length;
+  const pendingProviders = providers.filter(p => p.status === 'pending').length;
   let text = (
     `👑 *Админ-панель*\n\n` +
     `👥 Жильцов: *${userStats.total}* · активных за сутки: *${userStats.active24h}*\n` +
-    `🧺 Мастеров: *${active}*` + (pending ? ` · ⏳ заявок: *${pending}*` : '') + '\n'
+    `🧺 Мастеров: *${active}*` + (pending ? ` · ⏳ заявок: *${pending}*` : '') + '\n' +
+    `💅 Услуги: *${activeProviders}*` + (pendingProviders ? ` · ⏳ заявок: *${pendingProviders}*` : '') + '\n'
   );
   if (config.preordersEnabled) {
     const activePlaces = getActivePlaces();

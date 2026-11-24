@@ -26,7 +26,10 @@ export function transportMenuKeyboard(cartTotalQuantity = 0) {
   // 3. Домашняя еда и изделия ручной работы от местных мастеров
   keyboard.text('🧺 Домашнее и ручное', 'mk:home').row();
 
-  // 4. Важные объявления, потеряшки и помощь соседям
+  // 4. Услуги и красота от специалистов ЖК (маникюр, массаж, брови и т.д.)
+  keyboard.text('💅 Услуги и красота', 'srv:home').row();
+
+  // 5. Важные объявления, потеряшки и помощь соседям
   keyboard.text('🔔 Сигнал Гавани (сообщить всем)', 'sig:home').row();
 
   if (config.preordersEnabled && cartTotalQuantity > 0) {

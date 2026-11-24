@@ -12,11 +12,14 @@ import { supportComposer } from './handlers/support.js';
 import { kitchenComposer } from './handlers/kitchen.js';
 import { makersComposer } from './handlers/makers.js';
 import { makerPanelComposer } from './handlers/makerPanel.js';
+import { servicesComposer } from './handlers/services.js';
+import { servicePanelComposer } from './handlers/servicePanel.js';
 import { signalsComposer } from './handlers/signals.js';
 import { resetPendingInputMiddleware } from './utils/pendingInput.js';
 import { reportError } from './services/errorReporter.js';
-import { USER_COMMANDS, ADMIN_COMMANDS, syncMakerCommands } from './services/botCommands.js';
+import { USER_COMMANDS, ADMIN_COMMANDS, syncMakerCommands, syncServiceProviderCommands } from './services/botCommands.js';
 import { getAllMakers } from './db/repositories/makers.js';
+import { getAllProviders } from './db/repositories/servicesCatalog.js';
 
 export function createBot() {
   const botOptions = {
@@ -88,6 +91,8 @@ export function createBot() {
   bot.use(supportComposer);
   bot.use(makersComposer);
   bot.use(makerPanelComposer);
+  bot.use(servicesComposer);
+  bot.use(servicePanelComposer);
   bot.use(signalsComposer);
 
   // Предзаказы в кафе: подключаются только при FEATURE_PREORDERS=true
@@ -195,9 +200,12 @@ export async function setupBotCommands(bot) {
         console.warn(`[Commands] Не удалось зарегистрировать меню админа для ${adminId}:`, e.message);
       }
     }
-    // 4. Мастерам — меню с кабинетом мастера
+    // 4. Мастерам и специалистам услуг — меню с их кабинетами
     for (const maker of getAllMakers()) {
       if (maker.status === 'active') await syncMakerCommands(bot.api, maker.user_id, true);
+    }
+    for (const provider of getAllProviders()) {
+      if (provider.status === 'active') await syncServiceProviderCommands(bot.api, provider.user_id, true);
     }
     console.log('🔘 Быстрые команды в кнопке «Меню» успешно зарегистрированы.');
   } catch (err) {
